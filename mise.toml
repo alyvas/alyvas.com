@@ -1,0 +1,4 @@
+# https://github.com/jdx/mise
+[tools]
+node = "24.11.1"
+python = "3.13"

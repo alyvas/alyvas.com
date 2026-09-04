@@ -1,0 +1,30 @@
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-pixel';
+
+:root {
+  font-family: 'Geist Variable', Geist, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: #f7f3ee;
+}
+
+::selection {
+  color: #fffefa;
+  background: #60457b;
+}
