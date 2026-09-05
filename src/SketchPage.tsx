@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { GenerativePiece } from './GenerativePiece';
 import { randomSeed } from './generative/piece';
 
-const INKS: [string, string] = ['#3a2260', '#8a6fb8'];
-const ACCENTS = ['#d4679b', '#e88f6a', '#5b7fd6'];
+// Montiel-leaning pigments: plum ink, lilac wash, and clear accents of coral, peach, sky and magenta.
+const INKS: [string, string] = ['#46286c', '#9d82c8'];
+const ACCENTS = ['#e8735a', '#f2a97e', '#6e93d6', '#c94f8c', '#e6b35a'];
 const ASPECT = 1.6;
 
 const styles = stylex.create({
@@ -62,13 +63,30 @@ const useWidth = (fraction: number, max: number) => {
 /** One still generative piece, large. Click or press R for a new seed; ?seed=N pins one; ?sheet shows twelve. */
 const SketchPage = () => {
   const [seed, setSeed] = useState(readSeedParam);
+  const [elegance, setElegance] = useState(() =>
+    new URLSearchParams(window.location.search).has('elegant') ? 1 : 0.5
+  );
+  const [big, setBig] = useState(() => new URLSearchParams(window.location.search).has('big'));
+  const [geometric, setGeometric] = useState(() =>
+    new URLSearchParams(window.location.search).has('geometric') ? 1 : 0.15
+  );
   const sheet = new URLSearchParams(window.location.search).has('sheet');
-  const height = useWidth(sheet ? 0.24 : 0.82, sheet ? 260 : 700);
-  const width = Math.round(height * ASPECT);
+  const fitted = useWidth(sheet ? 0.24 : 0.82, sheet ? 260 : 700);
+  const [viewport, setViewport] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const update = () => setViewport(window.innerWidth);
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  const width = big ? Math.round(viewport * 0.7) : Math.round(fitted * ASPECT);
+  const height = big ? Math.round(width / 2) : fitted;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'r' || event.key === 'R') setSeed(randomSeed());
+      if (event.key === 'e' || event.key === 'E') setElegance((v) => (v > 0.75 ? 0.5 : 1));
+      if (event.key === 'g' || event.key === 'G') setGeometric((v) => (v > 0.75 ? 0.15 : 1));
+      if (event.key === 'b' || event.key === 'B') setBig((v) => !v);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -92,6 +110,9 @@ const SketchPage = () => {
               width={width}
               height={height}
               inks={INKS}
+              accents={ACCENTS}
+              elegance={elegance}
+              geometric={geometric}
               ground="white"
             />
           ))}
@@ -109,6 +130,9 @@ const SketchPage = () => {
           height={height}
           inks={INKS}
           accents={ACCENTS}
+          elegance={elegance}
+          geometric={geometric}
+          stacks={big ? 22 : 1}
           ground="white"
         />
         <p {...stylex.props(styles.meta)}>{seed}</p>

@@ -19,6 +19,12 @@ export type PieceOptions = {
   accents?: string[];
   /** Probability that an element takes an accent pigment (0..1). */
   accentChance?: number;
+  /** 0 is wild and splotchy, 1 is spare and calligraphic; default 0.5. */
+  elegance?: number;
+  /** 0 is flowing, 1 is almost purely geometric: angular stem, polygon petals and pools. */
+  geometric?: number;
+  /** How many vines to stack; above 1 each vine takes its own FIELDS palette and direction. */
+  stacks?: number;
   ground: 'white' | 'transparent';
 };
 
@@ -347,7 +353,7 @@ const deform = (rng: Rng, pts: Vec[], amount: number, depth: number): Vec[] => {
 };
 
 /** Thin a dense polygon so deformation works on a handful of vertices. */
-const coarsen = (pts: Vec[], target = 14): Vec[] => {
+const coarsen = (pts: Vec[], target = 22): Vec[] => {
   const step = Math.max(1, Math.floor(pts.length / target));
   return pts.filter((_, i) => i % step === 0);
 };
@@ -363,13 +369,36 @@ const watercolour = (
   shape: Vec[],
   alpha: number,
   color: string,
-  layers = 14
+  layers = 11,
+  drift = 0.05
 ) => {
-  const base = deform(rng, coarsen(shape), 0.3, 2);
+  const base = deform(rng, coarsen(shape), 0.07, 2);
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const [x, y] of base) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const extent = Math.max(maxX - minX, maxY - minY) || 1;
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
   ctx.fillStyle = color;
   ctx.globalCompositeOperation = 'multiply';
   for (let l = 0; l < layers; l++) {
-    const poly = deform(rng, base, 0.4, 3);
+    // Each layer drifts and breathes a little, so stacked edges stay visible.
+    const dx = (rng.next() - 0.5) * extent * drift;
+    const dy = (rng.next() - 0.5) * extent * drift;
+    // Some layers sit inside the shape, so the core reads denser than the rim.
+    const inner = l % 3 === 0;
+    const grow = inner ? rng.range(0.78, 0.92) : 1 + (rng.next() - 0.5) * drift * 1.5;
+    const poly = deform(rng, base, inner ? 0.08 : 0.11, 3).map(([x, y]): Vec => [
+      cx + (x - cx) * grow + dx,
+      cy + (y - cy) * grow + dy,
+    ]);
     ctx.globalAlpha = (alpha * 1.5) / layers;
     ctx.beginPath();
     poly.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
@@ -381,19 +410,100 @@ const watercolour = (
 };
 
 /** A watercolour pool: an irregular blob with organically feathered edges. */
-const pool = (ctx: Ctx, rng: Rng, center: Vec, radius: number, alpha: number, color: string) => {
+const pool = (
+  ctx: Ctx,
+  rng: Rng,
+  center: Vec,
+  radius: number,
+  alpha: number,
+  color: string,
+  geometric = 0.3,
+  dpr = 1
+) => {
   const noise = makeNoise1(rng, 3);
   const shape: Vec[] = [];
-  const steps = 10;
-  for (let i = 0; i < steps; i++) {
-    const a = (i / steps) * Math.PI * 2;
-    const wobble = 1 + 0.3 * noise(a * 1.3);
-    shape.push([
-      center[0] + Math.cos(a) * radius * wobble,
-      center[1] + Math.sin(a) * radius * wobble,
-    ]);
+  // Sometimes the splotch has a geometric heart: a triangle, rhombus, pentagon or hexagon.
+  const sides = rng.chance(geometric) ? rng.pick([3, 4, 5, 6]) : 10;
+  const spin = rng.range(0, Math.PI * 2);
+  const stretch = sides === 4 ? rng.range(1.3, 1.9) : 1;
+  for (let i = 0; i < sides; i++) {
+    const a = spin + (i / sides) * Math.PI * 2;
+    const wobble = sides === 10 ? 1 + 0.18 * noise(a * 1.3) : 1;
+    const r = radius * wobble * (i % 2 === 0 ? stretch : 1);
+    shape.push([center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r]);
   }
-  watercolour(ctx, rng, shape, alpha, color, 16);
+  watercolour(ctx, rng, shape, alpha, color, sides === 10 ? 9 : 6, sides === 10 ? 0.06 : 0.1);
+  // Now and then a large dot screen sits over the pool, like a printed tint.
+  if (rng.chance(0.18)) screenFill(ctx, rng, shape, alpha * 0.8, color, dpr);
+};
+
+/** A halftone pattern tile: dots, checker, diagonal lines or cross-hatch, in a pigment. */
+const makeScreen = (rng: Rng, color: string, dpr: number): CanvasPattern | null => {
+  const cell = Math.round(rng.range(4, 7) * dpr);
+  const kind = 'dots' as const;
+  const tile = document.createElement('canvas');
+  tile.width = cell * 2;
+  tile.height = cell * 2;
+  const t = tile.getContext('2d');
+  if (!t) return null;
+  t.fillStyle = color;
+  t.strokeStyle = color;
+  t.lineWidth = Math.max(1, cell * 0.28);
+  if (kind === 'dots') {
+    const r = cell * rng.range(0.22, 0.38);
+    for (const [cx, cy] of [
+      [cell * 0.5, cell * 0.5],
+      [cell * 1.5, cell * 1.5],
+    ]) {
+      t.beginPath();
+      t.arc(cx!, cy!, r, 0, Math.PI * 2);
+      t.fill();
+    }
+  } else if (kind === 'checker') {
+    t.fillRect(0, 0, cell, cell);
+    t.fillRect(cell, cell, cell, cell);
+  } else {
+    t.beginPath();
+    t.moveTo(0, cell * 2);
+    t.lineTo(cell * 2, 0);
+    t.moveTo(-cell, cell);
+    t.lineTo(cell, -cell);
+    t.moveTo(cell, cell * 3);
+    t.lineTo(cell * 3, cell);
+    if (kind === 'cross') {
+      t.moveTo(0, 0);
+      t.lineTo(cell * 2, cell * 2);
+      t.moveTo(-cell, cell);
+      t.lineTo(cell, cell * 3);
+      t.moveTo(cell, -cell);
+      t.lineTo(cell * 3, cell);
+    }
+    t.stroke();
+  }
+  return t.createPattern(tile, 'repeat');
+};
+
+/** Fill a shape with a halftone screen instead of paint. */
+const screenFill = (
+  ctx: Ctx,
+  rng: Rng,
+  shape: Vec[],
+  alpha: number,
+  color: string,
+  dpr: number
+) => {
+  const pattern = makeScreen(rng, color, dpr);
+  if (!pattern) return;
+  const poly = deform(rng, coarsen(shape), 0.06, 2);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = pattern;
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.beginPath();
+  poly.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
 };
 
 /** A brushstroke: a watercolour bleed shaped like the stroke itself, then the ribbon core in ink. */
@@ -402,7 +512,7 @@ const brushstroke = (
   pts: Vec[],
   widths: number[],
   alphas: number[],
-  bleed = 2.4,
+  bleed = 1.5,
   coreAlpha = 0.9
 ) => {
   const { ink, wash, rng, pigment } = sc;
@@ -410,14 +520,122 @@ const brushstroke = (
     pts,
     widths.map((w) => w * bleed)
   );
-  watercolour(wash, rng, outline, 0.7, pigment.wash, 10);
-  ribbon(
-    ink,
-    pts,
-    widths,
-    alphas.map((a) => a * coreAlpha),
-    pigment.ink
-  );
+  watercolour(wash, rng, outline, 0.4, pigment.wash, 6);
+  const core = alphas.map((a) => a * coreAlpha);
+  // Mix brushes the way p5.brush does: a clean ribbon most of the time, sometimes charcoal or stipple.
+  const kind = rng.next();
+  if (kind < 0.62) ribbon(ink, pts, widths, core, pigment.ink);
+  else if (kind < 0.84) charcoal(ink, rng, pts, widths, core, pigment.ink);
+  else {
+    ribbon(
+      ink,
+      pts,
+      widths.map((w) => w * 0.55),
+      core.map((a) => a * 0.6),
+      pigment.ink
+    );
+    stipple(ink, rng, pts, widths, core, pigment.ink);
+  }
+};
+
+/** Charcoal: several offset, narrower passes with lateral jitter, so the edge goes grainy. */
+const charcoal = (
+  ctx: Ctx,
+  rng: Rng,
+  pts: Vec[],
+  widths: number[],
+  alphas: number[],
+  color: string
+) => {
+  const n = normalsOf(pts);
+  for (let pass = 0; pass < 4; pass++) {
+    const jitter = rng.range(0.15, 0.45);
+    const shifted = pts.map(([x, y], i): Vec => {
+      const off = (rng.next() - 0.5) * widths[i]! * jitter;
+      return [x + n[i]![0] * off, y + n[i]![1] * off];
+    });
+    ribbon(
+      ctx,
+      shifted,
+      widths.map((w) => w * rng.range(0.45, 0.75)),
+      alphas.map((a) => a * 0.45),
+      color
+    );
+  }
+};
+
+/** Stipple: dots scattered along and across the stroke, denser where the stroke is wider. */
+const stipple = (
+  ctx: Ctx,
+  rng: Rng,
+  pts: Vec[],
+  widths: number[],
+  alphas: number[],
+  color: string
+) => {
+  const n = normalsOf(pts);
+  ctx.fillStyle = color;
+  for (let i = 1; i < pts.length; i++) {
+    const w = widths[i]!;
+    const count = Math.max(1, Math.round(w * 0.9));
+    for (let k = 0; k < count; k++) {
+      const t = rng.next();
+      const x = pts[i - 1]![0] + (pts[i]![0] - pts[i - 1]![0]) * t;
+      const y = pts[i - 1]![1] + (pts[i]![1] - pts[i - 1]![1]) * t;
+      const off = (rng.next() - 0.5) * w * 1.3;
+      ctx.globalAlpha = alphas[i]! * rng.range(0.3, 0.9);
+      ctx.beginPath();
+      ctx.arc(x + n[i]![0] * off, y + n[i]![1] * off, w * rng.range(0.12, 0.3), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+};
+
+/** Hatch: thin parallel lines clipped to a shape, a texture laid over paint. */
+const hatchFill = (
+  ctx: Ctx,
+  rng: Rng,
+  shape: Vec[],
+  alpha: number,
+  color: string,
+  lineW: number
+) => {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const [x, y] of shape) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const r = Math.hypot(maxX - minX, maxY - minY) / 2;
+  const angle = rng.range(0, Math.PI);
+  const spacing = lineW * rng.range(2.2, 4);
+  ctx.save();
+  ctx.beginPath();
+  shape.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+  ctx.closePath();
+  ctx.clip();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineW * 0.5;
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  for (let d = -r; d <= r; d += spacing) {
+    const px = cx + Math.cos(angle) * d;
+    const py = cy + Math.sin(angle) * d;
+    const tx = -Math.sin(angle) * r;
+    const ty = Math.cos(angle) * r;
+    ctx.moveTo(px - tx, py - ty);
+    ctx.lineTo(px + tx, py + ty);
+  }
+  ctx.stroke();
+  ctx.restore();
+  ctx.globalAlpha = 1;
 };
 
 // --- composition -------------------------------------------------------------------------
@@ -427,9 +645,23 @@ type Scene = {
   wash: Ctx;
   u: number;
   lineW: number;
+  dpr: number;
+  elegance: number;
+  geometric: number;
+  /** Heading snap for angular growth: a right angle for maze-like pieces, 36 degrees otherwise. */
+  snap: number;
+  main: Pigment;
+  anchors: Vec[];
   rng: Rng;
   pigment: Pigment;
   pick: () => Pigment;
+};
+
+/** Paint or screen: shapes fill with watercolour most of the time, with a halftone otherwise. */
+const fillShape = (sc: Scene, shape: Vec[], alpha: number, layers: number) => {
+  const { wash, ink, rng, pigment, lineW } = sc;
+  watercolour(wash, rng, shape, alpha, pigment.wash, layers, rng.chance(0.3) ? 0.09 : 0.04);
+  if (rng.chance(0.14)) hatchFill(ink, rng, shape, rng.range(0.12, 0.28), pigment.ink, lineW);
 };
 
 /** A leaf: a fan of Maurer chords rooted at the node, the fan filled in watercolour. */
@@ -443,8 +675,19 @@ const leaf = (sc: Scene, at: Vec, dir: number, size: number) => {
   const pts = place(rooted, at, size, dir + rng.range(-0.5, 0.5));
   const alpha = fadeProfile(rng, pts.length - 1, rng.range(0.1, 0.3)).map((v) => 0.3 + 0.4 * v);
   const widths = brushWidths(rng, pts.length, lineW * rng.range(0.7, 1.3), 0.35, 0.05, 0.3);
-  pool(wash, rng, at, size * rng.range(0.5, 0.8), rng.range(0.3, 0.5), pigment.wash);
-  watercolour(wash, rng, pts, rng.range(0.7, 1), pigment.wash, 12);
+  if (rng.chance(0.5 - 0.4 * sc.elegance)) {
+    pool(
+      wash,
+      rng,
+      at,
+      size * rng.range(0.5, 0.8),
+      rng.range(0.3, 0.5),
+      pigment.wash,
+      sc.geometric,
+      sc.dpr
+    );
+  }
+  fillShape(sc, pts, rng.range(0.7, 1), 8);
   ribbon(ink, pts, widths, alpha, pigment.ink);
 };
 
@@ -454,37 +697,75 @@ const rose = (sc: Scene, at: Vec, size: number) => {
   const n = rng.pick([2, 3, 4, 5, 6, 7]);
   const d = rng.pick([29, 31, 37, 41, 47, 71, 97, 113, 137]);
   const angle = rng.range(0, Math.PI * 2);
+  const geo = rng.chance(sc.geometric);
+  const fat = rng.range(0.45, 0.7);
   const petal: Vec[] = [];
-  for (let k = 0; k <= 720; k++) {
-    const th = (k * Math.PI) / 360;
-    const r = Math.sin(n * th);
+  const steps = geo ? n * 2 * rng.pick([2, 3]) : 720;
+  for (let k = 0; k <= steps; k++) {
+    const th = (k * Math.PI * 2) / steps;
+    // Fattened petals: |sin|^fat keeps the lobes round instead of spiky.
+    const sn = Math.sin(n * th);
+    const r = Math.sign(sn) * Math.abs(sn) ** fat;
     petal.push([r * Math.cos(th), r * Math.sin(th)]);
   }
   const petals = place(petal, at, size, angle);
-  pool(wash, rng, at, size * rng.range(0.8, 1.2), rng.range(0.25, 0.45), pigment.wash);
-  watercolour(wash, rng, petals, rng.range(0.9, 1.3), pigment.wash, 18);
+  if (rng.chance(0.6 - 0.4 * sc.elegance)) {
+    pool(
+      wash,
+      rng,
+      at,
+      size * rng.range(0.8, 1.2),
+      rng.range(0.25, 0.45),
+      pigment.wash,
+      sc.geometric,
+      sc.dpr
+    );
+  }
+  fillShape(sc, petals, rng.range(0.9, 1.2), 9);
   const heart = petals.map(([x, y]): Vec => [
     at[0] + (x - at[0]) * 0.55,
     at[1] + (y - at[1]) * 0.55,
   ]);
-  watercolour(wash, rng, heart, rng.range(0.7, 1), pigment.wash, 10);
-  const chords = place(maurerArc(n, d, 0, 360), at, size, angle);
-  const lattice = rng.range(0.05, 0.12);
-  strokePath(
-    ink,
-    chords,
-    lineW * 0.5,
-    chords.map(() => lattice),
-    pigment.ink
-  );
+  watercolour(wash, rng, heart, rng.range(0.7, 1), pigment.wash, 6);
+  if (!geo && rng.chance(0.6)) {
+    const chords = place(maurerArc(n, d, 0, 360), at, size, angle);
+    const lattice = rng.range(0.04, 0.09);
+    strokePath(
+      ink,
+      chords,
+      lineW * 0.5,
+      chords.map(() => lattice),
+      pigment.ink
+    );
+  }
   const widths = brushWidths(rng, petals.length, lineW * rng.range(0.5, 1), 0.3, 0.02, 0.02);
-  ribbon(
-    ink,
-    petals,
-    widths,
-    petals.map(() => 0.35),
-    pigment.ink
-  );
+  if (rng.chance(0.4)) {
+    // Open the outline: draw only a stretch of it, then let a loose end reach for another point.
+    const from = rng.int(0, petals.length - 1);
+    const span = Math.floor(petals.length * rng.range(0.35, 0.75));
+    const arc: Vec[] = [];
+    for (let k = 0; k < span; k++) arc.push(petals[(from + k) % petals.length]!);
+    const arcAlpha = fadeProfile(rng, arc.length, 0.15).map((v) => 0.25 + 0.3 * v);
+    ribbon(ink, arc, widths.slice(0, arc.length), arcAlpha, pigment.ink);
+    if (sc.anchors.length > 0) {
+      const target = rng.pick(sc.anchors);
+      const end = arc[arc.length - 1]!;
+      const jitter = 8 * sc.dpr;
+      const line: Vec[] = [
+        end,
+        [target[0] + rng.range(-jitter, jitter), target[1] + rng.range(-jitter, jitter)],
+      ];
+      strokePath(ink, line, lineW * 0.45, [0.35], pigment.ink);
+    }
+  } else {
+    ribbon(
+      ink,
+      petals,
+      widths,
+      petals.map(() => 0.35),
+      pigment.ink
+    );
+  }
 };
 
 /** A rosette: a dense Penrose patch whose tiles fill in a gradient from the centre outward. */
@@ -498,7 +779,19 @@ const blossom = (sc: Scene, at: Vec, size: number) => {
   const cutAngle = rng.range(0, Math.PI * 2);
   const cutDir: Vec = [Math.cos(cutAngle), Math.sin(cutAngle)];
   const cutOffset = rng.range(-0.3, 0.6) * size;
-  pool(wash, rng, at, size * rng.range(0.9, 1.3), rng.range(0.25, 0.45), pigment.wash);
+  if (rng.chance(0.5 - 0.4 * sc.elegance)) {
+    pool(
+      wash,
+      rng,
+      at,
+      size * rng.range(0.9, 1.3),
+      rng.range(0.25, 0.45),
+      pigment.wash,
+      sc.geometric,
+      sc.dpr
+    );
+  }
+  const screen = rng.chance(0.15) ? makeScreen(rng, pigment.wash, sc.dpr) : null;
   wash.globalCompositeOperation = 'multiply';
   for (const rh of rhombi) {
     const placed = place(rh, at, edge, angle);
@@ -508,7 +801,15 @@ const blossom = (sc: Scene, at: Vec, size: number) => {
     const side = (cx - at[0]) * cutDir[0] + (cy - at[1]) * cutDir[1] - cutOffset;
     const a = smoothstep(size, size * 0.2, dist) * smoothstep(-edge * 2, edge, side);
     if (a < 0.03) continue;
-    fillPolygon(wash, placed, a * rng.range(0.4, 0.9), pigment.wash);
+    if (screen) {
+      wash.globalAlpha = a * rng.range(0.6, 1);
+      wash.fillStyle = screen;
+      wash.beginPath();
+      placed.forEach(([x, y], i) => (i === 0 ? wash.moveTo(x, y) : wash.lineTo(x, y)));
+      wash.closePath();
+      wash.fill();
+      wash.globalAlpha = 1;
+    } else fillPolygon(wash, placed, a * rng.range(0.4, 0.9), pigment.wash);
     if (rng.chance(0.5)) {
       ink.globalAlpha = a * rng.range(0.1, 0.3);
       ink.lineWidth = lineW * 0.6;
@@ -539,55 +840,197 @@ const tendril = (sc: Scene, at: Vec, dir: number, size: number) => {
   );
   const [ox, oy] = raw[0]!;
   const rooted = raw.map(([x, y]): Vec => [x - ox, y - oy]);
-  const pts = place(rooted, at, size, dir + rng.range(-0.8, 0.8));
+  // Geometric: keep only a handful of points so the curve becomes an angular zigzag.
+  const sparse = rng.chance(sc.geometric) ? coarsen(rooted, rng.int(5, 9)) : rooted;
+  const pts = place(sparse, at, size, dir + rng.range(-0.8, 0.8));
   const alpha = fadeProfile(rng, pts.length - 1, rng.range(0.1, 0.25)).map((v) => 0.4 + 0.6 * v);
   const widths = brushWidths(rng, pts.length, lineW * rng.range(0.9, 1.6), 0.4, 0.02, 0.6);
-  brushstroke(sc, pts, widths, alpha, 2.2, 0.85);
+  brushstroke(sc, pts, widths, alpha, 2.6, 0.85);
 };
 
-const compose = (
+/** A bloom: a ring of rounded petals (ellipses, or rhombi when geometric), each filled on its own. */
+const bloom = (sc: Scene, at: Vec, size: number) => {
+  const { rng, ink, wash, lineW, pigment } = sc;
+  const count = rng.int(3, 8);
+  const geo = rng.chance(sc.geometric);
+  const spin = rng.range(0, Math.PI * 2);
+  const petalLen = size * rng.range(0.8, 1.1);
+  const petalWid = petalLen * rng.range(0.3, 0.55);
+  const gap = rng.range(0.05, 0.3);
+  if (rng.chance(0.6 - 0.4 * sc.elegance)) {
+    pool(
+      wash,
+      rng,
+      at,
+      size * rng.range(0.9, 1.3),
+      rng.range(0.2, 0.4),
+      pigment.wash,
+      sc.geometric,
+      sc.dpr
+    );
+  }
+  for (let i = 0; i < count; i++) {
+    const a = spin + (i / count) * Math.PI * 2;
+    const shape: Vec[] = [];
+    const steps = geo ? 4 : 24;
+    for (let k = 0; k < steps; k++) {
+      const t = (k / steps) * Math.PI * 2;
+      // Ellipse from the centre outward; a rhombus when geometric.
+      const ex = geo ? [0, 0.5, 1, 0.5][k]! : 0.5 + 0.5 * Math.cos(t);
+      const ey = geo ? [0, 0.5, 0, -0.5][k]! : 0.5 * Math.sin(t);
+      const px = (gap + ex) * petalLen;
+      const py = ey * petalWid;
+      shape.push([
+        at[0] + px * Math.cos(a) - py * Math.sin(a),
+        at[1] + px * Math.sin(a) + py * Math.cos(a),
+      ]);
+    }
+    watercolour(wash, rng, shape, rng.range(0.7, 1.1), pigment.wash, 7, geo ? 0.03 : 0.06);
+    if (rng.chance(0.7)) {
+      const outline = [...shape, shape[0]!];
+      const widths = brushWidths(rng, outline.length, lineW * rng.range(0.5, 0.9), 0.3, 0.1, 0.1);
+      ribbon(
+        ink,
+        outline,
+        widths,
+        outline.map(() => rng.range(0.2, 0.45)),
+        pigment.ink
+      );
+    }
+  }
+  ink.globalAlpha = 0.7;
+  ink.fillStyle = pigment.ink;
+  ink.beginPath();
+  ink.arc(at[0], at[1], lineW * rng.range(1.2, 2.4), 0, Math.PI * 2);
+  ink.fill();
+  ink.globalAlpha = 1;
+};
+
+/** An angular spine: straight runs with heading snapped to multiples of 36 degrees. */
+const growAngular = (
   rng: Rng,
-  ink: Ctx,
-  wash: Ctx,
-  W: number,
-  H: number,
-  dpr: number,
-  pigments: Pigment[],
-  accentChance: number
+  start: Vec,
+  heading: number,
+  length: number,
+  steps: number,
+  snap = Math.PI / 5
+): Vec[] => {
+  const pts: Vec[] = [start];
+  let [x, y] = start;
+  let h = Math.round(heading / snap) * snap;
+  const runs = rng.int(4, 8);
+  const perRun = Math.max(2, Math.floor(steps / runs));
+  const step = length / steps;
+  for (let r = 0; r < runs; r++) {
+    for (let i = 0; i < perRun; i++) {
+      x += Math.cos(h) * step;
+      y += Math.sin(h) * step;
+      pts.push([x, y]);
+    }
+    const turn = (snap > 1 ? rng.pick([-1, 1]) : rng.pick([-2, -1, -1, 1, 1, 2])) * snap;
+    h += turn;
+    const off = ((h - heading + Math.PI) % (Math.PI * 2)) - Math.PI;
+    if (Math.abs(off) > Math.PI / 2) h -= Math.sign(off) * snap * 2;
+  }
+  return pts;
+};
+
+/** A trail of dots that shrink along a direction, like the tail of a swash. */
+const dots = (sc: Scene, at: Vec, dir: number, spacing: number, count: number) => {
+  const { rng, ink, lineW, pigment } = sc;
+  ink.fillStyle = pigment.ink;
+  for (let k = 1; k <= count; k++) {
+    const d = spacing * k * rng.range(0.8, 1.2);
+    const x = at[0] + Math.cos(dir) * d;
+    const y = at[1] + Math.sin(dir) * d;
+    ink.globalAlpha = rng.range(0.5, 0.95) * (1 - k / (count + 2));
+    ink.beginPath();
+    ink.arc(x, y, lineW * rng.range(0.7, 1.6) * (1 - 0.2 * k), 0, Math.PI * 2);
+    ink.fill();
+  }
+  ink.globalAlpha = 1;
+};
+
+/** A calligraphic flourish: a log-spiral curl as a thin-thick-thin stroke, simplified. */
+const flourish = (sc: Scene, at: Vec, dir: number, size: number) => {
+  const { rng, lineW } = sc;
+  const turns = rng.range(1.2, 2.4);
+  const growth = rng.range(0.16, 0.3);
+  const steps = 70;
+  const raw: Vec[] = [];
+  const hand = rng.chance(0.5) ? 1 : -1;
+  for (let i = 0; i <= steps; i++) {
+    const th = (i / steps) * turns * Math.PI * 2;
+    const r = Math.exp(growth * th) - 1;
+    raw.push([r * Math.cos(th), hand * r * Math.sin(th)]);
+  }
+  const rmax = Math.hypot(raw[steps]![0], raw[steps]![1]) || 1;
+  const norm = raw.map(([x, y]): Vec => [x / rmax, y / rmax]);
+  const pts = place(norm, at, size, dir + rng.range(-0.6, 0.6));
+  const widths = brushWidths(rng, pts.length, lineW * rng.range(0.7, 1.4), 0.6, 0.35, 0.35);
+  const alpha = fadeProfile(rng, pts.length - 1, 0.08).map((v) => 0.5 + 0.5 * v);
+  brushstroke(sc, pts, widths, alpha, 1.3, 0.8);
+  const end = pts[pts.length - 1]!;
+  const prev = pts[pts.length - 4]!;
+  const ang = Math.atan2(end[1] - prev[1], end[0] - prev[0]);
+  dots(sc, end, ang, size * 0.25, rng.int(1, 3));
+};
+
+/** L-system twigs: F[+F][-F]F at right angles, thinner each generation, with a little bloom at the ends. */
+const lsystem = (
+  sc: Scene,
+  at: Vec,
+  heading: number,
+  length: number,
+  depth: number,
+  width: number
 ) => {
-  const u = Math.min(W, H);
-  const long = Math.max(W, H);
-  const lineW = Math.max(dpr, u * 0.0055);
-  const main = pigments[0]!;
-  const accents = pigments.slice(1);
-  const pick = (): Pigment =>
-    accents.length > 0 && rng.chance(accentChance) ? rng.pick(accents) : main;
-  const sc: Scene = { ink, wash, u, lineW, rng, pigment: main, pick };
-  const landscape = W >= H;
+  const { rng, ink, lineW, snap } = sc;
+  if (depth <= 0 || length < lineW * 4) return;
+  const end: Vec = [at[0] + Math.cos(heading) * length, at[1] + Math.sin(heading) * length];
+  ribbon(ink, [at, end], [width, width * 0.8], [0.8, 0.8], sc.main.ink);
+  const forks: number[] = [];
+  if (rng.chance(0.8)) forks.push(heading + snap);
+  if (rng.chance(0.8)) forks.push(heading - snap);
+  if (rng.chance(0.5)) forks.push(heading);
+  for (const h of forks)
+    lsystem(sc, end, h, length * rng.range(0.5, 0.75), depth - 1, width * 0.75);
+  if (forks.length === 0 || depth === 1) {
+    if (rng.chance(0.35)) {
+      sc.pigment = sc.pick();
+      if (rng.chance(0.5)) bloom(sc, end, length * 0.5);
+      else dots(sc, end, heading, length * 0.3, rng.int(1, 3));
+      sc.pigment = sc.main;
+    }
+  }
+};
 
-  // Main stem: starts near one edge and grows across the long axis with a gentle wave.
-  const fromLeft = rng.chance(0.5);
-  const startAlong = long * rng.range(0.06, 0.18);
-  const startAcross = u * rng.range(0.3, 0.7);
-  const start: Vec = landscape
-    ? [fromLeft ? startAlong : W - startAlong, startAcross]
-    : [startAcross, fromLeft ? startAlong : H - startAlong];
-  const baseHeading = landscape ? (fromLeft ? 0 : Math.PI) : fromLeft ? Math.PI / 2 : -Math.PI / 2;
-  const heading = baseHeading + rng.range(-0.4, 0.4);
-  const stemLength = long * rng.range(0.5, 0.75);
-  const stem = growSpine(rng, start, heading, stemLength, 160, rng.range(0.6, 1.8));
+/** One vine: a stem from a start point along a heading, with nodes, branches and blooms. */
+const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
+  const { rng, ink, wash, u, lineW, dpr, elegance, geometric, main, pick, snap } = sc;
+  const angular = rng.chance(geometric);
+  const stem = angular
+    ? growAngular(rng, start, heading, stemLength, 160, snap)
+    : growSpine(rng, start, heading, stemLength, 160, rng.range(0.6, 1.8));
 
-  // Soft pools along the stem, in the stem's own pigment, so the whole thing has a body.
-  const glowCount = rng.int(2, 3);
-  for (let i = 0; i < glowCount; i++) {
+  // A soft pool along the stem, in the stem's own pigment, so the whole thing has a body.
+  if (rng.chance(0.6)) {
     const p = stem[rng.int(10, stem.length - 10)]!;
-    pool(wash, rng, p, u * rng.range(0.1, 0.18), rng.range(0.15, 0.3), main.wash);
+    pool(wash, rng, p, u * rng.range(0.08, 0.14), rng.range(0.14, 0.24), main.wash, geometric, dpr);
   }
 
-  const stemWidths = brushWidths(rng, stem.length, lineW * rng.range(2.2, 4), 0.4, 0.02, 0.35);
+  const stemWidths = brushWidths(
+    rng,
+    stem.length,
+    lineW * rng.range(2.2, 4) * (1 - 0.35 * elegance),
+    0.5,
+    0.02,
+    0.35
+  );
   const stemAlpha = stem.map(() => 0.9);
+  const above: Array<() => void> = [];
+  const blushes: Array<{ index: number; pigment: Pigment }> = [];
 
-  // Nodes along the stem sprout leaves, roses, rosettes and tendrils, alternating sides.
   const normals = normalsOf(stem);
   const nodeCount = rng.int(4, 7);
   let side = rng.chance(0.5) ? 1 : -1;
@@ -598,18 +1041,38 @@ const compose = (
     const p = stem[i]!;
     const n = normals[i]!;
     side = rng.chance(0.75) ? -side : side;
-    const dir = Math.atan2(n[1] * side, n[0] * side) + rng.range(-0.4, 0.4);
+    const dir = angular
+      ? Math.atan2(n[1] * side, n[0] * side)
+      : Math.atan2(n[1] * side, n[0] * side) + rng.range(-0.4, 0.4);
     const size = u * rng.range(0.1, 0.22) * (1 - 0.35 * t);
-    sc.pigment = pick();
+    const pigment = pick();
+    sc.anchors.push(p);
+    for (let j = -6; j <= 6; j++) {
+      const idx = i + j;
+      if (idx >= 0 && idx < stemWidths.length)
+        stemWidths[idx]! *= 1 + 0.55 * Math.exp(-(j * j) / 8);
+    }
+    if (pigment !== main) blushes.push({ index: i, pigment });
     const roll = rng.next();
-    if (roll < 0.3) leaf(sc, p, dir, size);
-    else if (roll < 0.55) rose(sc, p, size * 0.7);
-    else if (roll < 0.8) blossom(sc, p, size * 0.8);
-    else tendril(sc, p, dir, size);
+    const draw = () => {
+      sc.pigment = pigment;
+      const e = elegance;
+      if (angular && rng.chance(0.4)) lsystem(sc, p, dir, size * 0.8, rng.int(2, 4), lineW * 1.4);
+      else if (roll < 0.2 - 0.08 * e) leaf(sc, p, dir, size);
+      else if (roll < 0.38) rose(sc, p, size * 0.7);
+      else if (roll < 0.56) bloom(sc, p, size * 0.55);
+      else if (roll < 0.7 - 0.15 * e) blossom(sc, p, size * 0.8);
+      else if (roll < 0.86 - 0.08 * e) tendril(sc, p, dir, size);
+      else if (roll < 0.95) flourish(sc, p, dir, size * 0.9);
+      else dots(sc, p, dir, size * 0.3, rng.int(2, 4));
+    };
+    if (rng.chance(0.45)) above.push(draw);
+    else draw();
 
-    // Occasionally a side branch grows from the node and carries its own small piece.
     if (rng.chance(0.35) && branches.length < 2) {
-      const branch = growSpine(rng, p, dir, u * rng.range(0.22, 0.45), 60, rng.range(0.8, 2.4));
+      const branch = angular
+        ? growAngular(rng, p, dir, u * rng.range(0.22, 0.45), 60, snap)
+        : growSpine(rng, p, dir, u * rng.range(0.22, 0.45), 60, rng.range(0.8, 2.4));
       branches.push(branch);
       const bw = brushWidths(rng, branch.length, lineW * rng.range(1.3, 2.4), 0.4, 0.02, 0.5);
       sc.pigment = main;
@@ -627,19 +1090,33 @@ const compose = (
         tip[0] - branch[branch.length - 6]![0]
       );
       sc.pigment = pick();
-      if (rng.chance(0.4)) leaf(sc, tip, tipDir, size * 0.7);
-      else if (rng.chance(0.5)) rose(sc, tip, size * 0.5);
+      if (angular && rng.chance(0.5))
+        lsystem(sc, tip, tipDir, size * 0.7, rng.int(2, 3), lineW * 1.2);
+      else if (rng.chance(0.3)) leaf(sc, tip, tipDir, size * 0.7);
+      else if (rng.chance(0.4)) rose(sc, tip, size * 0.5);
+      else if (rng.chance(0.6)) bloom(sc, tip, size * 0.45);
       else blossom(sc, tip, size * 0.55);
     }
   }
 
-  // The stem is drawn last, as one continuous stroke, over everything it carries.
   sc.pigment = main;
-  brushstroke(sc, stem, stemWidths, stemAlpha, 2.4, 0.88);
+  brushstroke(sc, stem, stemWidths, stemAlpha, 1.6, 0.88);
+  for (const { index, pigment } of blushes) {
+    const alpha = stem.map((_, j) => 0.85 * Math.exp(-((j - index) * (j - index)) / 90));
+    ribbon(ink, stem, stemWidths, alpha, pigment.ink);
+    const halo = stem.map((_, j) => Math.exp(-((j - index) * (j - index)) / 160));
+    ribbon(
+      wash,
+      stem,
+      stemWidths.map((w) => w * 2.2),
+      halo.map((v) => v * 0.5),
+      pigment.wash
+    );
+  }
+  for (const draw of above) draw();
 
-  // A few loose seeds drifting off the tip.
   const tip = stem[stem.length - 1]!;
-  const seeds = rng.int(0, 5);
+  const seeds = rng.int(0, 3 + Math.round(3 * elegance));
   for (let i = 0; i < seeds; i++) {
     const ang = heading + rng.range(-1, 1);
     const dist = u * rng.range(0.03, 0.16);
@@ -653,7 +1130,126 @@ const compose = (
   ink.globalAlpha = 1;
 };
 
+/** Colour sets after Ana Montiel's FIELDS, used when vines are stacked. */
+const FIELDS: Array<{ inks: [string, string]; accents: string[] }> = [
+  { inks: ['#46286c', '#9d82c8'], accents: ['#e8735a', '#f2a97e', '#6e93d6'] },
+  { inks: ['#1e4fa8', '#7fa4e0'], accents: ['#f14e3c', '#f6b2c0', '#e93c8f'] },
+  { inks: ['#a04a2a', '#e4956a'], accents: ['#f7d64a', '#f2a08a', '#e8e3d6'] },
+  { inks: ['#4a3630', '#c3cbe6'], accents: ['#e07a62', '#f3c9a8', '#efc35a'] },
+  { inks: ['#4a4658', '#a8a2ad'], accents: ['#2a86d8', '#f4784a', '#f7b48f'] },
+  { inks: ['#7a2f5a', '#d38fb6'], accents: ['#f6b2c0', '#5d86dc', '#f4a081'] },
+  { inks: ['#2f3a55', '#8fb3e6'], accents: ['#f5a58a', '#3f6fd3', '#fbd9c4'] },
+];
+
+const compose = (
+  rng: Rng,
+  ink: Ctx,
+  wash: Ctx,
+  W: number,
+  H: number,
+  dpr: number,
+  pigments: Pigment[],
+  accentChance: number,
+  elegance: number,
+  geometric: number,
+  stacks: number
+) => {
+  const long = Math.max(W, H);
+  const landscape = W >= H;
+  const snap = rng.chance(0.55) ? Math.PI / 2 : Math.PI / 5;
+
+  const makeScene = (pigs: Pigment[], uScale: number): Scene => {
+    const u = Math.min(W, H) * uScale;
+    const main = pigs[0]!;
+    const accents = pigs.slice(1);
+    const pick = (): Pigment =>
+      accents.length > 0 && rng.chance(accentChance) ? rng.pick(accents) : main;
+    return {
+      ink,
+      wash,
+      u,
+      lineW: Math.max(dpr, u * 0.0055),
+      dpr,
+      elegance,
+      geometric,
+      snap,
+      main,
+      anchors: [],
+      rng,
+      pigment: main,
+      pick,
+    };
+  };
+
+  if (stacks <= 1) {
+    // One vine: starts near one edge and grows across the long axis.
+    const u = Math.min(W, H);
+    const fromLeft = rng.chance(0.5);
+    const startAlong = long * rng.range(0.06, 0.18);
+    const startAcross = u * rng.range(0.3, 0.7);
+    const start: Vec = landscape
+      ? [fromLeft ? startAlong : W - startAlong, startAcross]
+      : [startAcross, fromLeft ? startAlong : H - startAlong];
+    const baseHeading = landscape
+      ? fromLeft
+        ? 0
+        : Math.PI
+      : fromLeft
+        ? Math.PI / 2
+        : -Math.PI / 2;
+    vine(
+      makeScene(pigments, 1),
+      start,
+      baseHeading + rng.range(-0.4, 0.4),
+      long * rng.range(0.5, 0.75)
+    );
+    return;
+  }
+
+  // Many vines, each in its own palette, scale and direction, stacked into one field.
+  // They gather around a few centres so the piece reads as one mass with breathing room,
+  // and a couple of large anchors run across the whole thing to tie it together.
+  const centres: Vec[] = [];
+  const centreCount = rng.int(2, 4);
+  for (let c = 0; c < centreCount; c++) {
+    centres.push([
+      W * (0.2 + (0.6 * (c + rng.range(0.2, 0.8))) / centreCount),
+      H * rng.range(0.3, 0.7),
+    ]);
+  }
+  for (let k = 0; k < stacks; k++) {
+    const field = rng.pick(FIELDS);
+    const pigs = k === 0 ? pigments : pigmentsFromColours(field.inks, field.accents);
+    const anchor = k < 2;
+    const sc = makeScene(pigs, anchor ? rng.range(0.7, 0.95) : rng.range(0.3, 0.6));
+    const centre = rng.pick(centres);
+    const spread = anchor ? 0.35 : 0.22;
+    const start: Vec = anchor
+      ? [W * rng.range(0.05, 0.25), H * rng.range(0.25, 0.75)]
+      : [
+          centre[0] + (rng.next() + rng.next() - 1) * W * spread,
+          centre[1] + (rng.next() + rng.next() - 1) * H * spread,
+        ];
+    const heading = anchor ? rng.range(-0.5, 0.5) : rng.range(0, Math.PI * 2);
+    vine(sc, start, heading, long * (anchor ? rng.range(0.55, 0.8) : rng.range(0.18, 0.4)));
+  }
+};
+
 // --- paper, wet edges and composite ------------------------------------------------------
+
+/** 8x8 Bayer thresholds in [0,1), for a faint ordered texture. */
+const BAYER8 = (() => {
+  const m = new Float32Array(64);
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const q = x ^ y;
+      let v = 0;
+      for (let k = 0; k < 3; k++) v = (v << 2) | (((q >> k) & 1) << 1) | ((y >> k) & 1);
+      m[y * 8 + x] = (v + 0.5) / 64;
+    }
+  }
+  return m;
+})();
 
 /** Deterministic 2D value noise for paper grain. */
 const hash2 = (x: number, y: number) => {
@@ -712,6 +1308,17 @@ const composite = (
   const grainScale = 1 / (3.5 * dpr);
   const fineScale = 1 / (1.2 * dpr);
   const rimStep = Math.max(1, Math.round(2 * dpr));
+  const cell = Math.max(1, Math.round(dpr));
+
+  // Rare row shifts: a whisper of glitch in the colour fields only, never the ink.
+  const rowShift = new Int8Array(H);
+  let y0 = 0;
+  while (y0 < H) {
+    y0 += Math.floor(40 * dpr + hash2(y0, 7) * 120 * dpr);
+    const run = 1 + Math.floor(hash2(y0, 11) * 4 * dpr);
+    const shift = Math.round((hash2(y0, 13) - 0.5) * 6 * dpr);
+    for (let k = 0; k < run && y0 + k < H; k++) rowShift[y0 + k] = shift;
+  }
 
   const washAt = (x: number, y: number) => {
     if (x < 0 || y < 0 || x >= W || y >= H) return 0;
@@ -722,12 +1329,15 @@ const composite = (
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
       const inkA = inkData[i + 3]! / 255;
-      const washRaw = washData[i + 3]! / 255;
+      const gx = Math.min(W - 1, Math.max(0, x + rowShift[y]!));
+      const wi = (y * W + gx) * 4;
+      const bayer = BAYER8[(((y / cell) | 0) & 7) * 8 + (((x / cell) | 0) & 7)]! - 0.5;
+      const washRaw = (washData[wi + 3]! / 255) * (1 + 0.16 * bayer);
 
       // Paper: coarse granulation plus fine tooth, and pigment settles darker into the grain.
       const grain = valueNoise2(x * grainScale, y * grainScale) - 0.5;
       const tooth = valueNoise2(x * fineScale + 31.7, y * fineScale + 17.3) - 0.5;
-      const paper = 1 + 0.32 * grain + 0.12 * tooth;
+      const paper = 1 + 0.22 * grain + 0.08 * tooth;
 
       // Wet edge: where the wash density changes quickly, pigment gathers into a darker rim.
       const around =
@@ -737,7 +1347,7 @@ const composite = (
           washAt(x, y + rimStep)) /
         4;
       const rim = Math.abs(washRaw - around);
-      const washA = Math.min(1, Math.max(0, washRaw * paper + rim * 1.1));
+      const washA = Math.min(1, Math.max(0, washRaw * paper + rim * 0.7));
 
       let r = 255;
       let g = 255;
@@ -745,9 +1355,9 @@ const composite = (
       let a = isWhite ? 1 : 0;
 
       if (washA > 0.002) {
-        const wr = washData[i]!;
-        const wg = washData[i + 1]!;
-        const wb = washData[i + 2]!;
+        const wr = washData[wi]!;
+        const wg = washData[wi + 1]!;
+        const wb = washData[wi + 2]!;
         // Rim pigment is a deeper version of the same colour.
         const deepen = Math.min(1, rim * 1.6);
         const cr = wr * (1 - 0.35 * deepen);
@@ -788,17 +1398,21 @@ const makeLayer = (W: number, H: number) => {
 };
 
 /** Build ink/wash pairs from the option colours: accents get a deep and a light version. */
-const pigmentsFrom = (options: PieceOptions): Pigment[] => {
-  const deep = hexToRgb(options.inks[0]);
-  const midTone = hexToRgb(options.inks[1] ?? options.inks[0]);
+const pigmentsFromColours = (inks: [string] | [string, string], accents: string[]): Pigment[] => {
+  const deep = hexToRgb(inks[0]);
+  const midTone = hexToRgb(inks[1] ?? inks[0]);
   const white: [number, number, number] = [255, 255, 255];
   const main: Pigment = { ink: rgb(deep), wash: rgb(mixRgb(midTone, white, 0.25)) };
-  const accents = (options.accents ?? []).map((hex): Pigment => {
+  const rest = accents.map((hex): Pigment => {
     const c = hexToRgb(hex);
     return { ink: rgb(mixRgb(c, deep, 0.4)), wash: rgb(mixRgb(c, white, 0.08)) };
   });
-  return [main, ...accents];
+  return [main, ...rest];
 };
+
+/** Build ink/wash pairs from the option colours: accents get a deep and a light version. */
+const pigmentsFrom = (options: PieceOptions): Pigment[] =>
+  pigmentsFromColours(options.inks, options.accents ?? []);
 
 export const renderPiece = (canvas: HTMLCanvasElement, options: PieceOptions) => {
   const { seed, width, height, dpr, ground } = options;
@@ -811,14 +1425,27 @@ export const renderPiece = (canvas: HTMLCanvasElement, options: PieceOptions) =>
 
   // Compose on a generous working canvas so nothing is clipped mid-drawing, then fit the
   // drawn extent into the output with a margin.
-  const pad = 1.6;
+  const stacked = (options.stacks ?? 1) > 1;
+  const pad = stacked ? 1.15 : 1.6;
   const WW = Math.round(W * pad);
   const HH = Math.round(H * pad);
   let ink = makeLayer(WW, HH);
   let wash = makeLayer(WW, HH);
   ink.translate((WW - W) / 2, (HH - H) / 2);
   wash.translate((WW - W) / 2, (HH - H) / 2);
-  compose(makeRng(seed), ink, wash, W, H, dpr, pigmentsFrom(options), options.accentChance ?? 0.3);
+  compose(
+    makeRng(seed),
+    ink,
+    wash,
+    W,
+    H,
+    dpr,
+    pigmentsFrom(options),
+    options.accentChance ?? 0.3,
+    options.elegance ?? 0.5,
+    options.geometric ?? 0.15,
+    options.stacks ?? 1
+  );
 
   const box = measure(
     [ink.getImageData(0, 0, WW, HH).data, wash.getImageData(0, 0, WW, HH).data],
@@ -828,7 +1455,7 @@ export const renderPiece = (canvas: HTMLCanvasElement, options: PieceOptions) =>
   const fittedInk = makeLayer(W, H);
   const fittedWash = makeLayer(W, H);
   if (box) {
-    const margin = 0.06;
+    const margin = stacked ? 0.02 : 0.06;
     const bw = box.maxX - box.minX + 2;
     const bh = box.maxY - box.minY + 2;
     const scale = Math.min(1.3, (W * (1 - 2 * margin)) / bw, (H * (1 - 2 * margin)) / bh);

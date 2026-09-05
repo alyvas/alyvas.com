@@ -134,9 +134,10 @@ const App = () => {
             seed={pieceSeed}
             width={480}
             height={300}
-            inks={['#3a2260', '#8a6fb8']}
-            accents={['#d4679b', '#e88f6a']}
+            inks={['#46286c', '#9d82c8']}
+            accents={['#e8735a', '#f2a97e', '#6e93d6', '#c94f8c']}
             accentChance={0.3}
+            elegance={0.6}
             ground="transparent"
             label="A generated drawing, different on every visit"
           />
