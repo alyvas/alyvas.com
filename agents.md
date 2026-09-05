@@ -20,6 +20,7 @@
 ## Generative sketch
 
 - `/sketch` now shows a single still generative piece; see `docs/generative.md` for the full design (intent, determinism, pipeline, and review method).
+- `/sketch2` is a second study, a "plate" in the spirit of enigmatriz and gencup posters: the vine rendered once, then reworked with a grainy colour field, ruled panels, misregistered silhouette cutouts, windows where the image becomes ASCII in Geist Pixel, a dashed data line with square nodes, scattered figures and margin text columns. Renderer in `src/generative/plate.ts`, page in `Sketch2Page.tsx`; click or R for a new seed, `?seed=N` pins one.
 - p5 is no longer used anywhere in this project.
 - Keep new variations in the warm paper palette in spirit, but the piece itself renders in one or two dark inks on white.
 

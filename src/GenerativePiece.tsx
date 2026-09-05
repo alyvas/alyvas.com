@@ -21,6 +21,8 @@ type Props = {
   elegance?: number;
   geometric?: number;
   stacks?: number;
+  density?: number;
+  colorFlow?: boolean;
   ground: PieceOptions['ground'];
   label?: string;
 };
@@ -36,6 +38,8 @@ export const GenerativePiece = ({
   elegance,
   geometric,
   stacks,
+  density,
+  colorFlow,
   ground,
   label,
 }: Props) => {
@@ -56,9 +60,24 @@ export const GenerativePiece = ({
       elegance,
       geometric,
       stacks,
+      density,
+      colorFlow,
       ground,
     });
-  }, [seed, width, height, inks, accents, accentChance, elegance, geometric, stacks, ground]);
+  }, [
+    seed,
+    width,
+    height,
+    inks,
+    accents,
+    accentChance,
+    elegance,
+    geometric,
+    stacks,
+    density,
+    colorFlow,
+    ground,
+  ]);
 
   return (
     <canvas
