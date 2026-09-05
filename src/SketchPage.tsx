@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { GenerativePiece } from './GenerativePiece';
 import { randomSeed } from './generative/piece';
 
-const INKS: [string, string] = ['#2f1b4e', '#7a5aa8'];
+const INKS: [string, string] = ['#3a2260', '#8a6fb8'];
+const ACCENTS = ['#d4679b', '#e88f6a', '#5b7fd6'];
 const ASPECT = 1.6;
 
 const styles = stylex.create({
@@ -102,7 +103,14 @@ const SketchPage = () => {
   return (
     <main {...stylex.props(styles.page)} onClick={() => setSeed(randomSeed())}>
       <div {...stylex.props(styles.stack)}>
-        <GenerativePiece seed={seed} width={width} height={height} inks={INKS} ground="white" />
+        <GenerativePiece
+          seed={seed}
+          width={width}
+          height={height}
+          inks={INKS}
+          accents={ACCENTS}
+          ground="white"
+        />
         <p {...stylex.props(styles.meta)}>{seed}</p>
       </div>
     </main>

@@ -133,8 +133,10 @@ const App = () => {
           <GenerativePiece
             seed={pieceSeed}
             width={480}
-            height={240}
-            inks={['#2f1b4e', '#6a4a9c']}
+            height={300}
+            inks={['#3a2260', '#8a6fb8']}
+            accents={['#d4679b', '#e88f6a']}
+            accentChance={0.3}
             ground="transparent"
             label="A generated drawing, different on every visit"
           />

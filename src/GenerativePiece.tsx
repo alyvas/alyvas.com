@@ -16,20 +16,40 @@ type Props = {
   width: number;
   height: number;
   inks: PieceOptions['inks'];
+  accents?: string[];
+  accentChance?: number;
   ground: PieceOptions['ground'];
   label?: string;
 };
 
 /** Draws one still iteration of the generative piece into a canvas. Re-renders when the seed changes. */
-export const GenerativePiece = ({ seed, width, height, inks, ground, label }: Props) => {
+export const GenerativePiece = ({
+  seed,
+  width,
+  height,
+  inks,
+  accents,
+  accentChance,
+  ground,
+  label,
+}: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    renderPiece(canvas, { seed, width: width * dpr, height: height * dpr, dpr, inks, ground });
-  }, [seed, width, height, inks, ground]);
+    renderPiece(canvas, {
+      seed,
+      width: width * dpr,
+      height: height * dpr,
+      dpr,
+      inks,
+      accents,
+      accentChance,
+      ground,
+    });
+  }, [seed, width, height, inks, accents, accentChance, ground]);
 
   return (
     <canvas

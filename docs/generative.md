@@ -51,7 +51,10 @@ The image grows like a vine, so every seed shares an organic skeleton while the 
      Up to two side branches grow from nodes and carry a smaller leaf or blossom at the tip.
 3. **Seams.** Before each part is drawn, a soft band along its path is erased with destination-out, so it reads as laid on top of what it crosses. The stem is drawn last.
 4. **Washes.** Soft radial glows sit behind the stem in the second ink, and a few loose seeds drift off the tip.
-5. **Dither.** Both layers are ordered-dithered with an 8×8 Bayer matrix into flat pixels of the two inks, with solid cores where ink is dense. Wash cells are two CSS pixels on large canvases and one on small. The drawn bounding box is then recentred on the canvas.
+5. **Watercolour.** Washes, pools, leaf fans and rose petals are filled the way p5.brush and Tyler Hobbs do it: a dozen or more translucent copies of the shape, each with subdivided, randomly pushed edges, so pigment pools in the middle and feathers at the rim. Every brushstroke also lays a wider, fainter bleed of itself into the wash layer beneath the ink core.
+6. **Pigment and colour pops.** Washes are drawn in colour with multiply blending, so overlapping pigments deepen each other. Each element picks a pigment: usually the main purple, sometimes an accent such as pink or peach (`accents` and `accentChance` options), and its wash carries that colour into the surroundings.
+7. **Paper and wet edges.** In the composite, a coarse granulation noise and a fine tooth modulate the wash so pigment settles darker into the grain, and wherever wash density changes quickly a darker rim is added, the way pigment gathers at the edge of a drying pool. Ink is laid over the wash with straight alpha.
+8. **Fit.** The piece is composed on a canvas 1.6× larger than the output, its drawn extent is measured, and the whole drawing is scaled and centred into the output with a 6% margin. No seed is ever clipped, at any aspect ratio.
 
 The canvas can be any aspect ratio; element sizes scale from the short side and the stem spans the long one. The homepage uses 480×240 in deep purples on a transparent ground; `/sketch` uses a 1.6:1 landscape on white.
 
