@@ -8,6 +8,7 @@ import { PALETTES } from './palettes';
 
 const SketchPage = lazy(() => import('./SketchPage'));
 const Sketch2Page = lazy(() => import('./Sketch2Page'));
+const Sketch3Page = lazy(() => import('./Sketch3Page'));
 
 const HOME_DEFAULT_INKS: [string, string] = ['#46286c', '#9d82c8'];
 const HOME_DEFAULT_ACCENTS = ['#e8735a', '#f2a97e', '#6e93d6', '#c94f8c'];
@@ -211,6 +212,13 @@ const App = () => {
     return (
       <Suspense fallback={<div />}>
         <Sketch2Page />
+      </Suspense>
+    );
+  }
+  if (window.location.pathname === '/sketch3') {
+    return (
+      <Suspense fallback={<div />}>
+        <Sketch3Page />
       </Suspense>
     );
   }

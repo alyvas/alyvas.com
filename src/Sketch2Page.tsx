@@ -77,7 +77,11 @@ const Sketch2Page = () => {
     // The pixel font must be loaded before the canvas can draw with it.
     document.fonts.load(`12px 'Geist Pixel Variable'`).then(() => {
       if (cancelled) return;
-      renderPlate(canvas, { seed, width: width * dpr, height: height * dpr, dpr });
+      const raw = new URLSearchParams(window.location.search).get('structure');
+      const structure = (['rules', 'sparse', 'rows', 'boxes', 'masonry', 'minigrid'] as const).find(
+        (s) => s === raw
+      );
+      renderPlate(canvas, { seed, width: width * dpr, height: height * dpr, dpr, structure });
     });
     return () => {
       cancelled = true;
