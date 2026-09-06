@@ -127,7 +127,7 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
       activateProgram(gradientProgram);
       gl.uniform1f(gl.getUniformLocation(gradientProgram, 'u_distortion'), scene.distortion);
       gl.uniform1f(gl.getUniformLocation(gradientProgram, 'u_coverage'), scene.coverage);
-      // Every load is a different composition: a fresh seed shifts all the colour fields.
+      // A fresh seed per load shifts every colour field.
       gl.uniform1f(gl.getUniformLocation(gradientProgram, 'u_seed'), Math.random() * 100);
       const gradientColorsLocation = gl.getUniformLocation(gradientProgram, 'u_colors');
       const gradientColorCountLocation = gl.getUniformLocation(gradientProgram, 'u_colorCount');
@@ -223,7 +223,7 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
       };
 
       const renderFrame = (time: number, dt: number) => {
-        // Critically damped-ish easing; frame-rate independent.
+        // Frame-rate independent exponential easing.
         const ease = 1 - Math.exp(-dt * 14);
         cursor.x += (cursorTarget.x - cursor.x) * ease;
         cursor.y += (cursorTarget.y - cursor.y) * ease;
@@ -253,7 +253,7 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
         gl.bindVertexArray(null);
       };
 
-      // Start the clock somewhere random so the drift phases differ per load too.
+      // A random start time makes the drift phases differ per load.
       let time = Math.random() * 600;
       let last = performance.now();
       let rafId = 0;

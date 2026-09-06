@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "alyvas-com",
+  "compatibility_date": "2026-09-06",
+  "assets": {
+    "directory": "./dist",
+    // /sketch has no sketch.html; unmatched paths return index.html with a 200 so the
+    // client-side path check in App.tsx can run.
+    "not_found_handling": "single-page-application",
+  },
+}

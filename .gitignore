@@ -377,3 +377,7 @@ apps/api/data/*
 # Canvas perf harness output (regenerate with pnpm --filter @neue/canvas perf)
 apps/canvas/perf/results.json
 apps/canvas/perf/REPORT.md
+
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars

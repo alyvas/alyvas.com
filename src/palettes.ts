@@ -1,9 +1,8 @@
 import type { Palette } from './GradientCanvas';
 
 /**
- * Colour sets in the spirit of Ana Montiel's FIELDS: a few clear, bright accents floating in
- * paper. Colours paint in order, so accents come last and there are no near-whites here; the
- * paper colour provides the light.
+ * Colour sets for the background and the piece. Colours are painted in array order, so accents
+ * come last; there are no near-whites, because the paper colour supplies the light tones.
  */
 export const PALETTES: Palette[] = [
   {

@@ -1,8 +1,8 @@
 /**
- * A "plate": the vine piece reworked in the spirit of enigmatriz and gencup posters. A grainy
- * colour field, ruled panels, silhouettes cut out of the image, windows where the image is
+ * A "plate": the vine piece reworked after enigmatriz and gencup posters. A grainy colour
+ * field, ruled panels, silhouettes cut out of the image, windows where the image is
  * translated into ASCII, a dashed data line with square nodes, and small pixel-font labels.
- * Still, seeded, and deterministic like the piece itself.
+ * Still, seeded and deterministic, like the piece itself. See docs/plate.md.
  */
 import { randomSeed, renderPiece, type PieceOptions } from './piece';
 import { segmentImage, segmentPath, type Segment } from './segments';
@@ -177,8 +177,8 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     ctx.fillRect(0, 0, W, H);
   }
 
-  // 2. Structure: one layout per plate, drawn in white over the field. Panels stay the unit
-  //    every later section aligns to, whatever the layout looks like.
+  // 2. Structure: one layout per plate, drawn in white over the field. Whatever the layout,
+  //    its panels are the unit every later section aligns to.
   const panels = int(5, 9);
   const structure: PlateStructure =
     forced ??
@@ -234,8 +234,8 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
       }
     }
   } else if (structure === 'masonry') {
-    // Translucent rectangles laid over one another like a masonry of panels: some tall and
-    // narrow, some wide and short, starting from different edges so they overlap and stack.
+    // Translucent rectangles laid over one another: some tall and narrow, some wide and
+    // short, starting from different edges so they overlap.
     const count = int(6, 14);
     for (let i = 0; i < count; i++) {
       const tall = chance(0.6);
@@ -255,7 +255,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
       }
     }
     if (chance(0.5)) {
-      // A stepped profile, after old printed charts: a stack of bars following a soft curve.
+      // A stepped profile: a stack of bars following a soft curve.
       const sx = W * range(0.05, 0.5);
       const sy = H * range(0.05, 0.35);
       const step = px(range(6, 10));
@@ -297,7 +297,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     ctx.stroke();
   }
   if ((structure === 'rules' || structure === 'boxes') && chance(0.5)) {
-    // Bracketed indices at the head of each panel, like a numbered schematic sheet.
+    // Bracketed indices at the head of each panel.
     ctx.font = `${px(7)}px ${FONT}`;
     ctx.fillStyle = withAlpha(look.ink, 0.6);
     ctx.textBaseline = 'top';
@@ -310,7 +310,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     }
   }
   if (chance(0.7) && structure !== 'minigrid') {
-    // A fine grid band inside the structure, like graph paper showing through.
+    // A fine grid band inside the structure.
     const cell = px(range(8, 14));
     const top = H * range(0, 0.5);
     const bottom = top + H * range(0.2, 0.45);
@@ -437,9 +437,9 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     return pts;
   };
 
-  // 4. Silhouettes: flat cutouts of the vine in paper or hot colour, offset like a misregistered print.
-  // Photos get their cutouts from the segment layers instead; a feature-map silhouette of a
-  // textured photo is just a flat mass.
+  // 4. Silhouettes: flat cutouts of the vine in paper or hot colour, offset like a
+  //    misregistered print. Photos get their cutouts from the segment layers instead, because
+  //    a feature-map silhouette of a textured photo comes out as one flat mass.
   const silhouettes = options.source ? 0 : int(1, 3);
   for (let i = 0; i < silhouettes; i++) {
     const colour = chance(0.6) ? look.paper : look.hot;
@@ -451,7 +451,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     const sctx = sil.getContext('2d')!;
     const out = sctx.createImageData(piece.width, piece.height);
     const [r, g, b] = hexToRgb(colour);
-    // Only a band of the piece is cut, so the silhouette reads as a fragment.
+    // Only a horizontal band of the piece is cut, so the silhouette is a fragment.
     const bandTop = piece.height * range(0, 0.6);
     const bandBottom = bandTop + piece.height * range(0.25, 0.5);
     for (let y = 0; y < piece.height; y++) {
@@ -484,7 +484,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     const pickSubject = () => (subjects.length ? pick(subjects) : undefined);
     // Holes and moves must stay small, or the picture turns into paper.
     const pickSmallSubject = () => {
-      // Compact as well as small: a sprawling blob's outline fills its holes when painted.
+      // Compact as well as small: a sprawling blob's outline fills its own holes when painted.
       const small = subjects.filter(
         (seg) => seg.area <= 0.1 && (seg.bbox.w * seg.bbox.h) / (W * H) <= 0.16
       );
@@ -627,7 +627,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
           const luma = (rd[i]! * 0.299 + rd[i + 1]! * 0.587 + rd[i + 2]! * 0.114) / 255;
           const threshold =
             (bayer[(((y / cell) | 0) & 3) * 4 + (((x / cell) | 0) & 3)]! + 0.5) / 16;
-          // Ink only where the screen says so; the picture stays underneath everywhere else.
+          // Ink only where the screen says so; the picture stays visible everywhere else.
           if (luma >= threshold) continue;
           rd[i] = ir;
           rd[i + 1] = ig;
@@ -750,8 +750,8 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     };
 
     // Seams: cut the picture along its largest segment boundaries into a few layers and shift
-    // each a little, with a paper gap where it moved from, a faint shadow and a hairline seam,
-    // so the photo reads as a paper collage before anything else touches it.
+    // each one, leaving a paper gap where it moved from, plus a faint shadow and a hairline
+    // seam, so the photo looks like a paper collage before anything else is applied.
     const layerSegs = [...allSegments]
       .filter((seg) => seg.area >= 0.025 && seg.area <= 0.6)
       .sort((a, b) => b.area - a.area)
@@ -932,7 +932,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
   }
 
   // 7. Burn: inside one section the image becomes coarse blocks in the hot colour, each row
-  //    bleeding sideways in runs, like a print that has soaked into the paper.
+  //    bleeding sideways in runs.
   if (chance(options.source ? 0.35 * light : 0.7 * light)) {
     const sec = section();
     const block = px(pick([5, 6, 8, 10]));
@@ -995,7 +995,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
   //    square, round or no nodes.
   const lines = options.source ? 1 : int(1, 2);
   for (let l = 0; l < lines; l++) {
-    // Most nodes sit on the vine, so the line stitches the drawing together; a few wander off.
+    // Most nodes sit on the vine, so the line follows the drawing; a few sit off it.
     const count = int(4, 8);
     const nodes: Vec[] = vinePoints(count).map((pt): Vec =>
       chance(0.25) ? [W * range(0.05, 0.95), H * range(0.1, 0.9)] : pt
@@ -1093,7 +1093,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
     }
   }
 
-  // Markers, after okazz: small circles, squares, quarter-discs, crosses and lollipops, in the
+  // Markers, after okazz: small circles, squares, quarter-discs, crosses and lollipops in the
   // plate's colours. Either scattered thinly or set on a sparse grid inside a section.
   const marker = (x: number, y: number, size: number) => {
     const colour = pick([look.ink, look.hot, look.field[0]!, look.field[1]!, '#ffffff']);
@@ -1146,7 +1146,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
       for (let c = 0; c < cols; c++) {
         const x = sec.x + c * step + step / 2;
         const y = sec.y + r * step + step / 2;
-        // The grid only fills where the drawing is, softly, so it reads as part of it.
+        // The grid only fills where the drawing has coverage, so it follows the subject.
         const cov = coverage(x, y, step);
         if (cov < 0.04 || hash2(c + 41, r + 43) > 0.35 + cov * 2) continue;
         marker(x, y, px(range(4, 9)));
@@ -1164,7 +1164,7 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
   for (const [x, y] of labelPoints) {
     ctx.font = `${px(pick([12, 14, 18]))}px ${FONT}`;
     const text = chance(0.7) ? String(int(10, 99)) : `${int(1, 9)}/${int(2, 9)}`;
-    // Set just off the drawing, like a caption to a detail.
+    // Set just off the drawing, as a caption to a detail.
     ctx.fillText(text, x + px(range(10, 26)), y - px(range(6, 18)));
   }
   const grids = int(1, 2);
@@ -1195,9 +1195,8 @@ export const renderPlate = (canvas: HTMLCanvasElement, options: PlateOptions) =>
       );
     }
   }
-  // Frame: sometimes a double rule with an inner margin, like a printed plate.
-  // Frame: rare, and never whole. Each side is drawn as a few segments with gaps, and one side
-  //    may be missing or shifted, like a plate whose border was trimmed by hand.
+  // Frame: rare, and never complete. Each side is drawn as a few segments with gaps, and one
+  // side may be missing or shifted.
   if (chance(0.15)) {
     const m = px(range(10, 22));
     ctx.strokeStyle = withAlpha(look.ink, 0.55);

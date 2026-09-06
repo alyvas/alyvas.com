@@ -27,7 +27,7 @@ type Props = {
   label?: string;
 };
 
-/** Draws one still iteration of the generative piece into a canvas. Re-renders when the seed changes. */
+/** Draws one still iteration of the generative piece into a canvas. */
 export const GenerativePiece = ({
   seed,
   width,

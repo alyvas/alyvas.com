@@ -23,7 +23,7 @@ export type PieceOptions = {
   elegance?: number;
   /** 0 is flowing, 1 is almost purely geometric: angular stem, polygon petals and pools. */
   geometric?: number;
-  /** How many vines to stack; above 1 each vine takes its own FIELDS palette and direction. */
+  /** How many vines to stack; above 1 each vine takes its own palette and direction. */
   stacks?: number;
   /** With stacks above 1: 0 keeps the base count, 1 floods the canvas with vines and washes. */
   density?: number;
@@ -393,7 +393,7 @@ const watercolour = (
   ctx.fillStyle = color;
   ctx.globalCompositeOperation = 'multiply';
   for (let l = 0; l < layers; l++) {
-    // Each layer drifts and breathes a little, so stacked edges stay visible.
+    // Each layer drifts and changes scale slightly, so stacked edges stay visible.
     const dx = (rng.next() - 0.5) * extent * drift;
     const dy = (rng.next() - 0.5) * extent * drift;
     // Some layers sit inside the shape, so the core reads denser than the rim.
@@ -425,7 +425,7 @@ const pool = (
 ) => {
   const noise = makeNoise1(rng, 3);
   const shape: Vec[] = [];
-  // Sometimes the splotch has a geometric heart: a triangle, rhombus, pentagon or hexagon.
+  // Sometimes the splotch has a geometric core: a triangle, rhombus, pentagon or hexagon.
   const sides = rng.chance(geometric) ? rng.pick([3, 4, 5, 6]) : 10;
   const spin = rng.range(0, Math.PI * 2);
   const stretch = sides === 4 ? rng.range(1.3, 1.9) : 1;
@@ -718,7 +718,7 @@ const rose = (sc: Scene, at: Vec, size: number) => {
   }
   const widths = brushWidths(rng, petals.length, lineW * rng.range(0.5, 1), 0.3, 0.02, 0.02);
   if (rng.chance(0.4)) {
-    // Open the outline: draw only a stretch of it, then let a loose end reach for another point.
+    // Open the outline: draw only part of it, then run a loose line to another point.
     const from = rng.int(0, petals.length - 1);
     const span = Math.floor(petals.length * rng.range(0.35, 0.75));
     const arc: Vec[] = [];
@@ -911,7 +911,7 @@ const growAngular = (
   return pts;
 };
 
-/** A trail of dots that shrink along a direction, like the tail of a swash. */
+/** A trail of dots that shrink along a direction. */
 const dots = (sc: Scene, at: Vec, dir: number, spacing: number, count: number) => {
   const { rng, ink, lineW, pigment } = sc;
   ink.fillStyle = pigment.ink;
@@ -990,7 +990,7 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
     ? growAngular(rng, start, heading, stemLength, 160, snap)
     : growSpine(rng, start, heading, stemLength, 160, rng.range(0.6, 1.8));
 
-  // A soft pool along the stem, in the stem's own pigment, so the whole thing has a body.
+  // A soft pool along the stem in the stem's own pigment, so the vine has some mass.
   if (rng.chance(0.6)) {
     const p = stem[rng.int(10, stem.length - 10)]!;
     pool(wash, rng, p, u * rng.range(0.08, 0.14), rng.range(0.14, 0.24), main.wash, geometric);
@@ -1124,8 +1124,8 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
   ink.globalAlpha = 1;
 };
 
-/** Colour sets after Ana Montiel's FIELDS, used when vines are stacked. */
-const FIELDS: Array<{ inks: [string, string]; accents: string[] }> = [
+/** Colour sets used when vines are stacked. */
+const PALETTES: Array<{ inks: [string, string]; accents: string[] }> = [
   { inks: ['#46286c', '#9d82c8'], accents: ['#e8735a', '#f2a97e', '#6e93d6'] },
   { inks: ['#1e4fa8', '#7fa4e0'], accents: ['#f14e3c', '#f6b2c0', '#e93c8f'] },
   { inks: ['#a04a2a', '#e4956a'], accents: ['#f7d64a', '#f2a08a', '#e8e3d6'] },
@@ -1204,9 +1204,8 @@ const compose = (
     return;
   }
 
-  // Many vines, each in its own palette, scale and direction, stacked into one field.
-  // They gather around a few centres so the piece reads as one mass with breathing room,
-  // and a couple of large anchors run across the whole thing to tie it together.
+  // Many vines, each in its own palette, scale and direction. They cluster around a few
+  // centres so the canvas is not filled evenly, and two large vines cross the whole canvas.
   const centres: Vec[] = [];
   const centreCount = rng.int(2, 4);
   for (let c = 0; c < centreCount; c++) {
@@ -1218,8 +1217,8 @@ const compose = (
   // Flood: at high density, broad washes in many palettes cover the ground before any vine.
   const floods = Math.round(density * density * 36);
   for (let f = 0; f < floods; f++) {
-    const field = rng.pick(FIELDS);
-    const pigs = pigmentsFromColours(field.inks, field.accents);
+    const palette = rng.pick(PALETTES);
+    const pigs = pigmentsFromColours(palette.inks, palette.accents);
     const pig = rng.chance(0.5) ? pigs[0]! : rng.pick(pigs);
     pool(
       wash,
@@ -1234,8 +1233,8 @@ const compose = (
 
   const total = Math.round(stacks * (1 + density * 3));
   for (let k = 0; k < total; k++) {
-    const field = rng.pick(FIELDS);
-    const pigs = k === 0 ? pigments : pigmentsFromColours(field.inks, field.accents);
+    const palette = rng.pick(PALETTES);
+    const pigs = k === 0 ? pigments : pigmentsFromColours(palette.inks, palette.accents);
     const anchor = k < 2 + Math.round(density * 3);
     const sc = makeScene(pigs, anchor ? rng.range(0.7, 0.95) : rng.range(0.3, 0.6));
     const centre = rng.pick(centres);
@@ -1328,7 +1327,7 @@ const composite = (
   const rimStep = Math.max(1, Math.round(2 * dpr));
   const cell = Math.max(1, Math.round(dpr));
 
-  // Rare row shifts: a whisper of glitch in the colour fields only, never the ink.
+  // Rare row shifts, in the colour fields only, never the ink.
   const rowShift = new Int8Array(H);
   let y0 = 0;
   while (y0 < H) {
@@ -1428,7 +1427,6 @@ const pigmentsFromColours = (inks: [string] | [string, string], accents: string[
   return [main, ...rest];
 };
 
-/** Build ink/wash pairs from the option colours: accents get a deep and a light version. */
 const pigmentsFrom = (options: PieceOptions): Pigment[] =>
   pigmentsFromColours(options.inks, options.accents ?? []);
 

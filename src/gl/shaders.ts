@@ -34,9 +34,8 @@ vec2 rotate(vec2 uv, float th) {
 `;
 
 /**
- * Colour fields in the spirit of airbrushed paper: each colour is a soft, feathered,
- * anisotropic mask carved from domain-warped noise and laid over the paper colour.
- * Rendered at low resolution; everything here is smooth by construction.
+ * Colour fields: each colour is a feathered, anisotropic mask cut from domain-warped noise
+ * and laid over the paper colour. Rendered at low resolution, so it must stay smooth.
  */
 export const GRADIENT_FRAGMENT_SHADER = `#version 300 es
 precision mediump float;
@@ -55,7 +54,7 @@ out vec4 fragColor;
 
 ${NOISE_LIB}
 
-// Two octaves: one big shape, one gentle undulation. Keeps edges airbrush-smooth.
+// Two octaves only, so mask edges stay smooth.
 float field(vec2 p) {
   return valueNoise(p) * .84 + valueNoise(p * 2.1 + vec2(3.3, 7.7)) * .16;
 }
@@ -65,22 +64,22 @@ void main() {
   vec2 q = (v_uv - .5) * u_resolution / shortSide;
   float t = u_time;
 
-  // Slow global domain warp so shapes lean and drift instead of pulsing in place.
+  // Domain warp, so shapes lean and drift instead of pulsing in place.
   vec2 warp = vec2(
     field(q * 1.1 + vec2(t * .06 + u_seed, 1.3)),
     field(q * 1.1 + vec2(4.7, u_seed - t * .05))
   ) - .5;
   vec2 p = q + u_distortion * 2.2 * warp;
 
-  // Weighted blend rather than painting one colour over the next: where masks overlap the
-  // colours mix, and the paper keeps a share everywhere, so edges dissolve into each other.
+  // Weighted blend rather than painting one colour over the next: overlapping masks mix, and
+  // paper keeps a share everywhere, so edges stay soft.
   vec3 sum = u_paper * .38;
   float weight = .38;
   for (int i = 0; i < ${MAX_COLORS}; i++) {
     if (i >= u_colorCount) break;
     float fi = float(i);
 
-    // Every colour gets its own stretch, angle and drift so nothing is a circle.
+    // Per-colour stretch, angle and drift, so no mask comes out circular.
     vec2 stretch = vec2(1. + .65 * sin(fi * 1.7 + .4), 1. + .65 * cos(fi * 2.3));
     float angle = fi * .9 + .18 * sin(t * .05 + fi);
     vec2 drift = vec2(sin(t * .09 + fi * 2.1), cos(t * .07 + fi * 1.3)) * .45;
@@ -143,18 +142,21 @@ float softDot(float threshold, float density) {
 void main() {
   vec2 px = gl_FragCoord.xy;
 
-  // Cursor lens: pixels (and the dots printed on them) slide away to make room.
+  // Cursor lens: pixels, and the dots printed on them, slide away from the pointer, with a
+  // small rotation added so the displacement is not purely radial.
   vec2 toCursor = px - u_cursor;
   float dist = length(toCursor);
-  float lens = smoothstep(u_cursorRadius, 0., dist) * u_cursorStrength;
+  float falloff = smoothstep(u_cursorRadius, 0., dist);
+  float lens = falloff * falloff * u_cursorStrength;
   vec2 dir = toCursor / max(dist, 1.);
-  vec2 shifted = px - dir * lens * u_cursorRadius * .35;
+  vec2 swirl = vec2(-dir.y, dir.x);
+  vec2 shifted = px - (dir * .95 + swirl * .22) * lens * u_cursorRadius * .8;
   vec2 uv = shifted / u_resolution;
 
   vec3 color = texture(u_gradient, uv).rgb;
   color = mix(color, u_wash, u_washAmount);
 
-  // Slowly drifting fields, in aspect-corrected screen space, that shape the halftone.
+  // Drifting fields, in aspect-corrected screen space, that drive the halftone density.
   vec2 field = uv * vec2(u_resolution.x / u_resolution.y, 1.);
   float drift = u_time * .05;
   float broad = valueNoise(field * 2.4 + vec2(drift, -drift * .6));
@@ -163,15 +165,27 @@ void main() {
   float third = valueNoise(field * 3.3 + vec2(9.1 - drift * .8, 6.4 + drift * .3));
 
   float luma = dot(color, vec3(.299, .587, .114));
-  // Mostly field-driven; only a whisper of the luminance banding so no colour edge reads as a stripe.
+  // Only 20% luminance banding, or colour edges show up as stripes.
   float band = mix(1., 1. - abs(2. * fract(luma * u_ditherLevels) - 1.), .2);
   float lightness = smoothstep(.62, .86, luma);
 
-  // Three translucent halftone layers at different cell sizes and tints, stacked like
-  // overprinted screens. Each is a soft dot mask against its own density field.
-  ivec2 cellA = ivec2(floor(shifted / u_ditherPixel));
-  ivec2 cellB = ivec2(floor((shifted + vec2(u_ditherPixel)) / (u_ditherPixel * 2.)));
-  ivec2 cellC = ivec2(floor((shifted + vec2(u_ditherPixel * 1.5, 0.)) / (u_ditherPixel * 3.)));
+  // One slow displacement field, shared by the screens and the grain, so neither sits on the
+  // colour field as a fixed grid.
+  vec2 swell = vec2(
+    valueNoise(field * 1.3 + vec2(drift * .9, 4.1)) - .5,
+    valueNoise(field * 1.3 + vec2(9.7, 2.6 - drift * .8)) - .5
+  );
+  swell += .35 * vec2(
+    sin(field.x * 3.1 + u_time * .13),
+    cos(field.y * 2.7 - u_time * .09)
+  );
+  vec2 warped = shifted + swell * u_ditherPixel * 7.;
+
+  // Three translucent halftone layers at different cell sizes and tints. Each is a soft dot
+  // mask against its own density field.
+  ivec2 cellA = ivec2(floor(warped / u_ditherPixel));
+  ivec2 cellB = ivec2(floor((warped + vec2(u_ditherPixel)) / (u_ditherPixel * 2.)));
+  ivec2 cellC = ivec2(floor((warped + vec2(u_ditherPixel * 1.5, 0.)) / (u_ditherPixel * 3.)));
 
   float densityA = smoothstep(.22, .78, .62 * broad + .38 * spotty) * band * .85;
   float fleck = valueNoise(field * 11. + vec2(1.3 + drift * .9, 8.2 - drift * .6));
@@ -182,12 +196,12 @@ void main() {
   float dotB = softDot(bayer(cellB, 2), densityB);
   float dotC = softDot(bayer(cellC, 3), densityC);
 
-  // Layer A: paper-light dots on colour, ink-dark dots on paper. Layer B: a cooler lilac
-  // screen. Layer C: sparse, coarse, faint warm specks.
+  // A: light dots on colour, dark dots on paper. B: a cooler lilac screen. C: sparse warm
+  // specks.
   vec3 tintA = mix(mix(color, vec3(1.), .55), mix(color, vec3(.5, .36, .6), .3), lightness);
   vec3 tintB = mix(color, vec3(.62, .5, .78), .35);
   vec3 tintC = mix(color, vec3(.9, .72, .6), .4);
-  // Each screen breathes on its own slow cycle so the stack never settles into one grid.
+  // Each screen fades on its own cycle, so the stack never settles into one grid.
   float breatheA = .7 + .3 * sin(u_time * .11);
   float breatheB = .35 + .65 * (.5 + .5 * sin(u_time * .07 + 2.1));
   float breatheC = .3 + .7 * (.5 + .5 * sin(u_time * .09 + 4.4));
@@ -195,11 +209,12 @@ void main() {
   color = mix(color, tintB, dotB * u_ditherMix * .7 * breatheB);
   color = mix(color, tintC, dotC * u_ditherMix * .5 * breatheC);
 
-  // Static photographic grain laid over the print: soft clumps with a little fine grain,
-  // strongest in midtones, fading out in highlights and shadows.
+  // Grain: soft clumps with a little fine speckle, strongest in midtones and fading out in
+  // highlights and shadows. Displaced by the same field as the screens.
+  vec2 grainPx = px + swell * u_grainScale * 1.6;
   vec2 seedOffset = vec2(u_grainSeed * 71.3, u_grainSeed * 37.9);
-  float soft = valueNoise(px / u_grainScale + seedOffset) - .5;
-  float speck = hash21(floor(px / (u_grainScale * .5)) + u_grainSeed) - .5;
+  float soft = valueNoise(grainPx / u_grainScale + seedOffset) - .5;
+  float speck = hash21(floor(grainPx / (u_grainScale * .5)) + u_grainSeed) - .5;
   float grain = mix(soft, speck, .2);
   float grainLuma = dot(color, vec3(.299, .587, .114));
   float midtone = 1. - abs(2. * grainLuma - 1.);
