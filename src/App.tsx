@@ -13,6 +13,7 @@ import {
   Fragment,
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useState,
 } from 'react';
@@ -196,7 +197,10 @@ const styles = stylex.create({
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',
-    gap: '1.35rem',
+    gap: {
+      default: '1.9rem',
+      '@media (min-width: 861px)': '1.35rem',
+    },
     textAlign: 'left',
     width: '100%',
     minWidth: 0,
@@ -210,14 +214,11 @@ const styles = stylex.create({
   bio: {
     margin: 0,
     fontWeight: 400,
-    lineHeight: 1.35,
+    lineHeight: 1.37,
     opacity: 0.88,
     textWrap: 'pretty',
   },
   post: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.22em',
     whiteSpace: 'nowrap',
     transition: 'color 600ms ease',
   },
@@ -227,12 +228,16 @@ const styles = stylex.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 0,
-    margin: 0,
+    marginTop: 0,
+    marginBottom: 0,
+    marginLeft: 0,
+    marginRight: '0.22em',
     borderWidth: 0,
     backgroundColor: 'transparent',
     color: 'currentColor',
     font: 'inherit',
     lineHeight: 0,
+    verticalAlign: '-0.08em',
     perspective: '800px',
     cursor: 'pointer',
     opacity: {
@@ -343,6 +348,7 @@ const styles = stylex.create({
     borderWidth: 0,
   },
   piece: {
+    marginBottom: 8,
     position: 'relative',
     flexShrink: 0,
     maxWidth: '100%',
@@ -481,14 +487,8 @@ const useDisplayFont = () => {
   return [DISPLAY_FONTS[index]!, next] as const;
 };
 
-/** Never wait longer than this for a font; a blank page is worse than a swapped one. */
 const REVEAL_TIMEOUT = 1200;
 
-/**
- * Holds the first paint until the display face is resident, which is what removes the flash of
- * fallback text. `document.fonts.ready` alone can settle before the face is ever requested, so
- * the two weights actually used are loaded by name first.
- */
 const useIsRevealed = (fontStack: string) => {
   const [isRevealed, setIsRevealed] = useState(false);
 
@@ -550,6 +550,9 @@ const CARD_SWING = 3.5;
 
 const randomTilt = () => (Math.random() * 2 - 1) * CARD_TILT;
 
+/** How close the card may come to the edge of the viewport before it is nudged back in. */
+const CARD_MARGIN = 10;
+
 type PostMarkProps = {
   post: Post;
   palette: Palette;
@@ -569,16 +572,32 @@ const PostMark = ({
 }: PostMarkProps) => {
   const { Icon } = post;
   const [tilt, setTilt] = useState(-1.2);
+  const [shift, setShift] = useState(0);
   const accent = palette.colors[post.accent] ?? palette.ink;
   const mix = (amount: number) =>
     `color-mix(in oklab, ${palette.ink} ${Math.round((1 - amount) * 100)}%, ${accent})`;
   const tinted = mix(post.tint);
   const open = () => {
     setTilt(randomTilt());
+    setShift(0);
     onOpenChange(post.id);
   };
+
+  const keepCardOnScreen = useCallback((node: HTMLSpanElement | null) => {
+    const button = node?.offsetParent;
+    if (!node || !(button instanceof HTMLElement)) return;
+    const anchor = button.getBoundingClientRect();
+    const width = node.offsetWidth;
+    const left = anchor.left + anchor.width / 2 - width / 2;
+    const pastLeft = CARD_MARGIN - left;
+    const pastRight = left + width - (window.innerWidth - CARD_MARGIN);
+    if (pastLeft > 0) setShift(pastLeft);
+    else if (pastRight > 0) setShift(-pastRight);
+  }, []);
+
   const cardStyle = {
     color: palette.ink,
+    marginLeft: shift,
     '--card-tilt': `${tilt.toFixed(2)}deg`,
     '--card-tilt-from': `${(tilt + CARD_SWING).toFixed(2)}deg`,
   } as CSSProperties;
@@ -602,6 +621,7 @@ const PostMark = ({
         />
         {isOpen && (
           <span
+            ref={keepCardOnScreen}
             aria-hidden="true"
             {...stylex.props(styles.popup)}
             style={cardStyle}
