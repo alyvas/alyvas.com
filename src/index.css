@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   font-family: 'Teachers Variable', Teachers, 'Geist Variable', sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -16,9 +17,13 @@ body,
   margin: 0;
 }
 
+html,
+body {
+  background: #f3ecf3;
+}
+
 body {
   min-height: 100svh;
-  background: #f3ecf3;
 }
 
 ::selection {

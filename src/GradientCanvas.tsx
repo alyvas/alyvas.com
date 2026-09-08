@@ -168,6 +168,8 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
         gl.uniform3f(gradientPaperLocation, pr, pg, pb);
         activateProgram(postProgram);
         gl.uniform3f(postWashLocation, pr, pg, pb);
+        // Resizing the drawing buffer clears it; paper keeps that clear from reading as black.
+        gl.clearColor(pr, pg, pb, 1);
       };
       applyPalette(paletteRef.current);
       applyPaletteRef.current = applyPalette;
@@ -218,6 +220,10 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
           gl.UNSIGNED_BYTE,
           null
         );
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, w, h);
+        gl.clear(gl.COLOR_BUFFER_BIT);
 
         return true;
       };
@@ -318,9 +324,10 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
       };
 
       const resizeObserver = new ResizeObserver(() => {
-        if (resize() && reducedMotionQuery.matches) {
-          renderStill();
-        }
+        if (!resize()) return;
+        // The resized buffer starts blank, so redraw in this same task rather than waiting
+        // for the next animation frame -- otherwise the empty buffer gets composited first.
+        renderFrame(time, 1 / 60);
       });
       resizeObserver.observe(canvas);
       resize();
