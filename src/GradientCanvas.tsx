@@ -89,9 +89,22 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
       });
       if (!gl || !canvas) return null;
 
+      // `alpha: false` hands back a drawing buffer that is opaque black, and it stays that way
+      // until something draws. On a driver where the programs below fail to build -- an in-app
+      // webview, say -- that black rectangle covers the whole page with no error to show for it.
+      // Clearing to paper first means the worst case is a plain paper background.
+      const [paperR, paperG, paperB] = hexToRgb(paletteRef.current.paper);
+      gl.clearColor(paperR, paperG, paperB, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
       const gradientProgram = createProgram(gl, VERTEX_SHADER, GRADIENT_FRAGMENT_SHADER);
       const postProgram = createProgram(gl, VERTEX_SHADER, POST_FRAGMENT_SHADER);
-      if (!gradientProgram || !postProgram) return null;
+      if (!gradientProgram || !postProgram) {
+        // Nothing will ever draw here, so take the canvas out of the picture entirely and let
+        // the page background show through instead of a stale paper-coloured slab.
+        canvas.style.display = 'none';
+        return null;
+      }
 
       // Bound so calling it doesn't read as a React hook call to the linter.
       const activateProgram = gl.useProgram.bind(gl);
@@ -168,7 +181,7 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
         gl.uniform3f(gradientPaperLocation, pr, pg, pb);
         activateProgram(postProgram);
         gl.uniform3f(postWashLocation, pr, pg, pb);
-        // Resizing the drawing buffer clears it; paper keeps that clear from reading as black.
+        // Resizing the drawing buffer clears it to black; paper keeps that from showing.
         gl.clearColor(pr, pg, pb, 1);
       };
       applyPalette(paletteRef.current);
@@ -362,6 +375,7 @@ export const GradientCanvas = ({ scene, palette }: { scene: GradientScene; palet
     }
 
     stop = start();
+    if (!stop) canvas.style.display = 'none';
 
     return () => {
       canvas.removeEventListener('webglcontextlost', handleContextLost);
