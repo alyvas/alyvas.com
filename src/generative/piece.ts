@@ -13,6 +13,14 @@ export type PieceOptions = {
   height: number;
   /** Device pixel ratio; line weights and dither cells scale with it. */
   dpr: number;
+  /**
+   * Magnification of the drawing itself. The composition is laid out in `width / scale` by
+   * `height / scale` logical units and every stroke is multiplied up from there, so the same
+   * seed draws the same picture at any output size. Without it the drawing is composed directly
+   * in output pixels, and an export at a different size or dpr silently produces a different
+   * picture from the one on screen. Defaults to 1.
+   */
+  scale?: number;
   /** Deep ink and mid wash colours as hex. */
   inks: [string] | [string, string];
   /** Optional accent pigments; some elements pick one, and their wash carries it into the surroundings. */
@@ -88,14 +96,24 @@ const rotate = ([x, y]: Vec, angle: number): Vec => {
   return [x * c - y * s, x * s + y * c];
 };
 
-const place = (points: Vec[], center: Vec, scale: number, angle: number): Vec[] =>
+const place = (
+  points: Vec[],
+  center: Vec,
+  scale: number,
+  angle: number,
+): Vec[] =>
   points.map((p) => {
     const [x, y] = rotate(p, angle);
     return [center[0] + x * scale, center[1] + y * scale];
   });
 
 /** Chords of a Maurer rose, r = sin(n·θ) sampled at θ = k·d degrees; returns a contiguous arc. */
-const maurerArc = (n: number, d: number, start: number, length: number): Vec[] => {
+const maurerArc = (
+  n: number,
+  d: number,
+  start: number,
+  length: number,
+): Vec[] => {
   const pts: Vec[] = [];
   for (let k = start; k <= start + length; k++) {
     const theta = (k * d * Math.PI) / 180;
@@ -106,7 +124,13 @@ const maurerArc = (n: number, d: number, start: number, length: number): Vec[] =
 };
 
 /** A stretch of a Lissajous curve. */
-const lissajousArc = (a: number, b: number, delta: number, t0: number, span: number): Vec[] => {
+const lissajousArc = (
+  a: number,
+  b: number,
+  delta: number,
+  t0: number,
+  span: number,
+): Vec[] => {
   const pts: Vec[] = [];
   const steps = Math.max(24, Math.round(span * 60));
   for (let i = 0; i <= steps; i++) {
@@ -173,7 +197,7 @@ const rgb = ([r, g, b]: [number, number, number]) => `rgb(${r} ${g} ${b})`;
 const mixRgb = (
   a: [number, number, number],
   b: [number, number, number],
-  t: number
+  t: number,
 ): [number, number, number] => [
   a[0] + (b[0] - a[0]) * t,
   a[1] + (b[1] - a[1]) * t,
@@ -181,20 +205,31 @@ const mixRgb = (
 ];
 
 /** Per-segment alpha: fades in and out along the path, with only a gentle swell. */
-const fadeProfile = (rng: Rng, count: number, fadeFraction: number): number[] => {
+const fadeProfile = (
+  rng: Rng,
+  count: number,
+  fadeFraction: number,
+): number[] => {
   const phase = rng.range(0, Math.PI * 2);
   const freq = rng.range(1, 2.5);
   const profile: number[] = [];
   for (let i = 0; i < count; i++) {
     const t = i / Math.max(1, count - 1);
-    const ends = smoothstep(0, fadeFraction, t) * smoothstep(1, 1 - fadeFraction, t);
+    const ends =
+      smoothstep(0, fadeFraction, t) * smoothstep(1, 1 - fadeFraction, t);
     const swell = 0.92 + 0.08 * Math.sin(t * freq * Math.PI * 2 + phase);
     profile.push(ends * swell);
   }
   return profile;
 };
 
-const strokePath = (ctx: Ctx, pts: Vec[], width: number, alpha: number[], color: string) => {
+const strokePath = (
+  ctx: Ctx,
+  pts: Vec[],
+  width: number,
+  alpha: number[],
+  color: string,
+) => {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.lineWidth = width;
@@ -227,7 +262,8 @@ const makeNoise1 = (rng: Rng, octaves = 4) => {
   }
   return (t: number) => {
     let v = 0;
-    for (let i = 0; i < freqs.length; i++) v += amps[i]! * Math.sin(t * freqs[i]! + phases[i]!);
+    for (let i = 0; i < freqs.length; i++)
+      v += amps[i]! * Math.sin(t * freqs[i]! + phases[i]!);
     return v / total;
   };
 };
@@ -239,7 +275,7 @@ const growSpine = (
   heading: number,
   length: number,
   steps: number,
-  wobble: number
+  wobble: number,
 ): Vec[] => {
   const noise = makeNoise1(rng, 2);
   const pts: Vec[] = [start];
@@ -280,7 +316,13 @@ const ribbonOutline = (pts: Vec[], widths: number[]): Vec[] => {
 };
 
 /** A brush ribbon: filled quads between left and right offsets, width and alpha per point. */
-const ribbon = (ctx: Ctx, pts: Vec[], widths: number[], alphas: number[], color: string) => {
+const ribbon = (
+  ctx: Ctx,
+  pts: Vec[],
+  widths: number[],
+  alphas: number[],
+  color: string,
+) => {
   const n = normalsOf(pts);
   ctx.fillStyle = color;
   for (let i = 1; i < pts.length; i++) {
@@ -311,7 +353,7 @@ const brushWidths = (
   base: number,
   variation: number,
   taperIn: number,
-  taperOut: number
+  taperOut: number,
 ) => {
   const noise = makeNoise1(rng, 2);
   const out: number[] = [];
@@ -374,7 +416,7 @@ const watercolour = (
   alpha: number,
   color: string,
   layers = 11,
-  drift = 0.05
+  drift = 0.05,
 ) => {
   const base = deform(rng, coarsen(shape), 0.07, 2);
   let minX = Number.POSITIVE_INFINITY;
@@ -398,14 +440,17 @@ const watercolour = (
     const dy = (rng.next() - 0.5) * extent * drift;
     // Some layers sit inside the shape, so the core reads denser than the rim.
     const inner = l % 3 === 0;
-    const grow = inner ? rng.range(0.78, 0.92) : 1 + (rng.next() - 0.5) * drift * 1.5;
-    const poly = deform(rng, base, inner ? 0.08 : 0.11, 3).map(([x, y]): Vec => [
-      cx + (x - cx) * grow + dx,
-      cy + (y - cy) * grow + dy,
-    ]);
+    const grow = inner
+      ? rng.range(0.78, 0.92)
+      : 1 + (rng.next() - 0.5) * drift * 1.5;
+    const poly = deform(rng, base, inner ? 0.08 : 0.11, 3).map(
+      ([x, y]): Vec => [cx + (x - cx) * grow + dx, cy + (y - cy) * grow + dy],
+    );
     ctx.globalAlpha = (alpha * 1.5) / layers;
     ctx.beginPath();
-    poly.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+    poly.forEach(([x, y], i) =>
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y),
+    );
     ctx.closePath();
     ctx.fill();
   }
@@ -421,7 +466,7 @@ const pool = (
   radius: number,
   alpha: number,
   color: string,
-  geometric = 0.3
+  geometric = 0.3,
 ) => {
   const noise = makeNoise1(rng, 3);
   const shape: Vec[] = [];
@@ -435,11 +480,23 @@ const pool = (
     const r = radius * wobble * (i % 2 === 0 ? stretch : 1);
     shape.push([center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r]);
   }
-  watercolour(ctx, rng, shape, alpha, color, sides === 10 ? 9 : 6, sides === 10 ? 0.06 : 0.1);
+  watercolour(
+    ctx,
+    rng,
+    shape,
+    alpha,
+    color,
+    sides === 10 ? 9 : 6,
+    sides === 10 ? 0.06 : 0.1,
+  );
 };
 
 /** A halftone pattern tile: dots, checker, diagonal lines or cross-hatch, in a pigment. */
-const makeScreen = (rng: Rng, color: string, dpr: number): CanvasPattern | null => {
+const makeScreen = (
+  rng: Rng,
+  color: string,
+  dpr: number,
+): CanvasPattern | null => {
   const cell = Math.round(rng.range(4, 7) * dpr);
   const kind = 'dots' as const;
   const tile = document.createElement('canvas');
@@ -491,12 +548,12 @@ const brushstroke = (
   widths: number[],
   alphas: number[],
   bleed = 1.5,
-  coreAlpha = 0.9
+  coreAlpha = 0.9,
 ) => {
   const { ink, wash, rng, pigment } = sc;
   const outline = ribbonOutline(
     pts,
-    widths.map((w) => w * bleed)
+    widths.map((w) => w * bleed),
   );
   watercolour(wash, rng, outline, 0.4, pigment.wash, 6);
   const core = alphas.map((a) => a * coreAlpha);
@@ -510,7 +567,7 @@ const brushstroke = (
       pts,
       widths.map((w) => w * 0.55),
       core.map((a) => a * 0.6),
-      pigment.ink
+      pigment.ink,
     );
     stipple(ink, rng, pts, widths, core, pigment.ink);
   }
@@ -523,7 +580,7 @@ const charcoal = (
   pts: Vec[],
   widths: number[],
   alphas: number[],
-  color: string
+  color: string,
 ) => {
   const n = normalsOf(pts);
   for (let pass = 0; pass < 4; pass++) {
@@ -537,7 +594,7 @@ const charcoal = (
       shifted,
       widths.map((w) => w * rng.range(0.45, 0.75)),
       alphas.map((a) => a * 0.45),
-      color
+      color,
     );
   }
 };
@@ -549,7 +606,7 @@ const stipple = (
   pts: Vec[],
   widths: number[],
   alphas: number[],
-  color: string
+  color: string,
 ) => {
   const n = normalsOf(pts);
   ctx.fillStyle = color;
@@ -563,7 +620,13 @@ const stipple = (
       const off = (rng.next() - 0.5) * w * 1.3;
       ctx.globalAlpha = alphas[i]! * rng.range(0.3, 0.9);
       ctx.beginPath();
-      ctx.arc(x + n[i]![0] * off, y + n[i]![1] * off, w * rng.range(0.12, 0.3), 0, Math.PI * 2);
+      ctx.arc(
+        x + n[i]![0] * off,
+        y + n[i]![1] * off,
+        w * rng.range(0.12, 0.3),
+        0,
+        Math.PI * 2,
+      );
       ctx.fill();
     }
   }
@@ -577,7 +640,7 @@ const hatchFill = (
   shape: Vec[],
   alpha: number,
   color: string,
-  lineW: number
+  lineW: number,
 ) => {
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -640,8 +703,17 @@ type Scene = {
 /** Paint or screen: shapes fill with watercolour most of the time, with a halftone otherwise. */
 const fillShape = (sc: Scene, shape: Vec[], alpha: number, layers: number) => {
   const { wash, ink, rng, pigment, lineW } = sc;
-  watercolour(wash, rng, shape, alpha, pigment.wash, layers, rng.chance(0.3) ? 0.09 : 0.04);
-  if (rng.chance(0.14)) hatchFill(ink, rng, shape, rng.range(0.12, 0.28), pigment.ink, lineW);
+  watercolour(
+    wash,
+    rng,
+    shape,
+    alpha,
+    pigment.wash,
+    layers,
+    rng.chance(0.3) ? 0.09 : 0.04,
+  );
+  if (rng.chance(0.14))
+    hatchFill(ink, rng, shape, rng.range(0.12, 0.28), pigment.ink, lineW);
 };
 
 /** A leaf: a fan of Maurer chords rooted at the node, the fan filled in watercolour. */
@@ -653,8 +725,17 @@ const leaf = (sc: Scene, at: Vec, dir: number, size: number) => {
   const [ox, oy] = raw[0]!;
   const rooted = raw.map(([x, y]): Vec => [x - ox, y - oy]);
   const pts = place(rooted, at, size, dir + rng.range(-0.5, 0.5));
-  const alpha = fadeProfile(rng, pts.length - 1, rng.range(0.1, 0.3)).map((v) => 0.3 + 0.4 * v);
-  const widths = brushWidths(rng, pts.length, lineW * rng.range(0.7, 1.3), 0.35, 0.05, 0.3);
+  const alpha = fadeProfile(rng, pts.length - 1, rng.range(0.1, 0.3)).map(
+    (v) => 0.3 + 0.4 * v,
+  );
+  const widths = brushWidths(
+    rng,
+    pts.length,
+    lineW * rng.range(0.7, 1.3),
+    0.35,
+    0.05,
+    0.3,
+  );
   if (rng.chance(0.5 - 0.4 * sc.elegance)) {
     pool(
       wash,
@@ -663,7 +744,7 @@ const leaf = (sc: Scene, at: Vec, dir: number, size: number) => {
       size * rng.range(0.5, 0.8),
       rng.range(0.3, 0.5),
       pigment.wash,
-      sc.geometric
+      sc.geometric,
     );
   }
   fillShape(sc, pts, rng.range(0.7, 1), 8);
@@ -696,14 +777,13 @@ const rose = (sc: Scene, at: Vec, size: number) => {
       size * rng.range(0.8, 1.2),
       rng.range(0.25, 0.45),
       pigment.wash,
-      sc.geometric
+      sc.geometric,
     );
   }
   fillShape(sc, petals, rng.range(0.9, 1.2), 9);
-  const heart = petals.map(([x, y]): Vec => [
-    at[0] + (x - at[0]) * 0.55,
-    at[1] + (y - at[1]) * 0.55,
-  ]);
+  const heart = petals.map(
+    ([x, y]): Vec => [at[0] + (x - at[0]) * 0.55, at[1] + (y - at[1]) * 0.55],
+  );
   watercolour(wash, rng, heart, rng.range(0.7, 1), pigment.wash, 6);
   if (!geo && rng.chance(0.6)) {
     const chords = place(maurerArc(n, d, 0, 360), at, size, angle);
@@ -713,17 +793,27 @@ const rose = (sc: Scene, at: Vec, size: number) => {
       chords,
       lineW * 0.5,
       chords.map(() => lattice),
-      pigment.ink
+      pigment.ink,
     );
   }
-  const widths = brushWidths(rng, petals.length, lineW * rng.range(0.5, 1), 0.3, 0.02, 0.02);
+  const widths = brushWidths(
+    rng,
+    petals.length,
+    lineW * rng.range(0.5, 1),
+    0.3,
+    0.02,
+    0.02,
+  );
   if (rng.chance(0.4)) {
     // Open the outline: draw only part of it, then run a loose line to another point.
     const from = rng.int(0, petals.length - 1);
     const span = Math.floor(petals.length * rng.range(0.35, 0.75));
     const arc: Vec[] = [];
-    for (let k = 0; k < span; k++) arc.push(petals[(from + k) % petals.length]!);
-    const arcAlpha = fadeProfile(rng, arc.length, 0.15).map((v) => 0.25 + 0.3 * v);
+    for (let k = 0; k < span; k++)
+      arc.push(petals[(from + k) % petals.length]!);
+    const arcAlpha = fadeProfile(rng, arc.length, 0.15).map(
+      (v) => 0.25 + 0.3 * v,
+    );
     ribbon(ink, arc, widths.slice(0, arc.length), arcAlpha, pigment.ink);
     if (sc.anchors.length > 0) {
       const target = rng.pick(sc.anchors);
@@ -731,7 +821,10 @@ const rose = (sc: Scene, at: Vec, size: number) => {
       const jitter = 8 * sc.dpr;
       const line: Vec[] = [
         end,
-        [target[0] + rng.range(-jitter, jitter), target[1] + rng.range(-jitter, jitter)],
+        [
+          target[0] + rng.range(-jitter, jitter),
+          target[1] + rng.range(-jitter, jitter),
+        ],
       ];
       strokePath(ink, line, lineW * 0.45, [0.35], pigment.ink);
     }
@@ -741,7 +834,7 @@ const rose = (sc: Scene, at: Vec, size: number) => {
       petals,
       widths,
       petals.map(() => 0.35),
-      pigment.ink
+      pigment.ink,
     );
   }
 };
@@ -765,24 +858,30 @@ const blossom = (sc: Scene, at: Vec, size: number) => {
       size * rng.range(0.9, 1.3),
       rng.range(0.25, 0.45),
       pigment.wash,
-      sc.geometric
+      sc.geometric,
     );
   }
-  const screen = rng.chance(0.15) ? makeScreen(rng, pigment.wash, sc.dpr) : null;
+  const screen = rng.chance(0.15)
+    ? makeScreen(rng, pigment.wash, sc.dpr)
+    : null;
   wash.globalCompositeOperation = 'multiply';
   for (const rh of rhombi) {
     const placed = place(rh, at, edge, angle);
     const cx = (placed[0]![0] + placed[2]![0]) / 2;
     const cy = (placed[0]![1] + placed[2]![1]) / 2;
     const dist = Math.hypot(cx - at[0], cy - at[1]);
-    const side = (cx - at[0]) * cutDir[0] + (cy - at[1]) * cutDir[1] - cutOffset;
-    const a = smoothstep(size, size * 0.2, dist) * smoothstep(-edge * 2, edge, side);
+    const side =
+      (cx - at[0]) * cutDir[0] + (cy - at[1]) * cutDir[1] - cutOffset;
+    const a =
+      smoothstep(size, size * 0.2, dist) * smoothstep(-edge * 2, edge, side);
     if (a < 0.03) continue;
     if (screen) {
       wash.globalAlpha = a * rng.range(0.6, 1);
       wash.fillStyle = screen;
       wash.beginPath();
-      placed.forEach(([x, y], i) => (i === 0 ? wash.moveTo(x, y) : wash.lineTo(x, y)));
+      placed.forEach(([x, y], i) =>
+        i === 0 ? wash.moveTo(x, y) : wash.lineTo(x, y),
+      );
       wash.closePath();
       wash.fill();
       wash.globalAlpha = 1;
@@ -792,11 +891,14 @@ const blossom = (sc: Scene, at: Vec, size: number) => {
       ink.lineWidth = lineW * 0.6;
       ink.strokeStyle = pigment.ink;
       ink.beginPath();
-      placed.forEach(([x, y], i) => (i === 0 ? ink.moveTo(x, y) : ink.lineTo(x, y)));
+      placed.forEach(([x, y], i) =>
+        i === 0 ? ink.moveTo(x, y) : ink.lineTo(x, y),
+      );
       ink.closePath();
       ink.stroke();
     }
-    if (rng.chance(0.08)) fillPolygon(ink, placed, a * rng.range(0.3, 0.6), pigment.ink);
+    if (rng.chance(0.08))
+      fillPolygon(ink, placed, a * rng.range(0.3, 0.6), pigment.ink);
   }
   wash.globalCompositeOperation = 'source-over';
   ink.globalAlpha = 1;
@@ -813,15 +915,26 @@ const tendril = (sc: Scene, at: Vec, dir: number, size: number) => {
     b,
     rng.range(0, Math.PI),
     rng.range(0, Math.PI * 2),
-    rng.range(1.4, 4)
+    rng.range(1.4, 4),
   );
   const [ox, oy] = raw[0]!;
   const rooted = raw.map(([x, y]): Vec => [x - ox, y - oy]);
   // Geometric: keep only a handful of points so the curve becomes an angular zigzag.
-  const sparse = rng.chance(sc.geometric) ? coarsen(rooted, rng.int(5, 9)) : rooted;
+  const sparse = rng.chance(sc.geometric)
+    ? coarsen(rooted, rng.int(5, 9))
+    : rooted;
   const pts = place(sparse, at, size, dir + rng.range(-0.8, 0.8));
-  const alpha = fadeProfile(rng, pts.length - 1, rng.range(0.1, 0.25)).map((v) => 0.4 + 0.6 * v);
-  const widths = brushWidths(rng, pts.length, lineW * rng.range(0.9, 1.6), 0.4, 0.02, 0.6);
+  const alpha = fadeProfile(rng, pts.length - 1, rng.range(0.1, 0.25)).map(
+    (v) => 0.4 + 0.6 * v,
+  );
+  const widths = brushWidths(
+    rng,
+    pts.length,
+    lineW * rng.range(0.9, 1.6),
+    0.4,
+    0.02,
+    0.6,
+  );
   brushstroke(sc, pts, widths, alpha, 2.6, 0.85);
 };
 
@@ -842,7 +955,7 @@ const bloom = (sc: Scene, at: Vec, size: number) => {
       size * rng.range(0.9, 1.3),
       rng.range(0.2, 0.4),
       pigment.wash,
-      sc.geometric
+      sc.geometric,
     );
   }
   for (let i = 0; i < count; i++) {
@@ -861,16 +974,31 @@ const bloom = (sc: Scene, at: Vec, size: number) => {
         at[1] + px * Math.sin(a) + py * Math.cos(a),
       ]);
     }
-    watercolour(wash, rng, shape, rng.range(0.7, 1.1), pigment.wash, 7, geo ? 0.03 : 0.06);
+    watercolour(
+      wash,
+      rng,
+      shape,
+      rng.range(0.7, 1.1),
+      pigment.wash,
+      7,
+      geo ? 0.03 : 0.06,
+    );
     if (rng.chance(0.7)) {
       const outline = [...shape, shape[0]!];
-      const widths = brushWidths(rng, outline.length, lineW * rng.range(0.5, 0.9), 0.3, 0.1, 0.1);
+      const widths = brushWidths(
+        rng,
+        outline.length,
+        lineW * rng.range(0.5, 0.9),
+        0.3,
+        0.1,
+        0.1,
+      );
       ribbon(
         ink,
         outline,
         widths,
         outline.map(() => rng.range(0.2, 0.45)),
-        pigment.ink
+        pigment.ink,
       );
     }
   }
@@ -889,7 +1017,7 @@ const growAngular = (
   heading: number,
   length: number,
   steps: number,
-  snap = Math.PI / 5
+  snap = Math.PI / 5,
 ): Vec[] => {
   const pts: Vec[] = [start];
   let [x, y] = start;
@@ -903,7 +1031,8 @@ const growAngular = (
       y += Math.sin(h) * step;
       pts.push([x, y]);
     }
-    const turn = (snap > 1 ? rng.pick([-1, 1]) : rng.pick([-2, -1, -1, 1, 1, 2])) * snap;
+    const turn =
+      (snap > 1 ? rng.pick([-1, 1]) : rng.pick([-2, -1, -1, 1, 1, 2])) * snap;
     h += turn;
     const off = ((h - heading + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (Math.abs(off) > Math.PI / 2) h -= Math.sign(off) * snap * 2;
@@ -912,7 +1041,13 @@ const growAngular = (
 };
 
 /** A trail of dots that shrink along a direction. */
-const dots = (sc: Scene, at: Vec, dir: number, spacing: number, count: number) => {
+const dots = (
+  sc: Scene,
+  at: Vec,
+  dir: number,
+  spacing: number,
+  count: number,
+) => {
   const { rng, ink, lineW, pigment } = sc;
   ink.fillStyle = pigment.ink;
   for (let k = 1; k <= count; k++) {
@@ -943,8 +1078,17 @@ const flourish = (sc: Scene, at: Vec, dir: number, size: number) => {
   const rmax = Math.hypot(raw[steps]![0], raw[steps]![1]) || 1;
   const norm = raw.map(([x, y]): Vec => [x / rmax, y / rmax]);
   const pts = place(norm, at, size, dir + rng.range(-0.6, 0.6));
-  const widths = brushWidths(rng, pts.length, lineW * rng.range(0.7, 1.4), 0.6, 0.35, 0.35);
-  const alpha = fadeProfile(rng, pts.length - 1, 0.08).map((v) => 0.5 + 0.5 * v);
+  const widths = brushWidths(
+    rng,
+    pts.length,
+    lineW * rng.range(0.7, 1.4),
+    0.6,
+    0.35,
+    0.35,
+  );
+  const alpha = fadeProfile(rng, pts.length - 1, 0.08).map(
+    (v) => 0.5 + 0.5 * v,
+  );
   brushstroke(sc, pts, widths, alpha, 1.3, 0.8);
   const end = pts[pts.length - 1]!;
   const prev = pts[pts.length - 4]!;
@@ -960,18 +1104,29 @@ const lsystem = (
   length: number,
   depth: number,
   width: number,
-  strokePigment: Pigment = sc.colorFlow ? sc.pigment : sc.main
+  strokePigment: Pigment = sc.colorFlow ? sc.pigment : sc.main,
 ) => {
   const { rng, ink, lineW, snap } = sc;
   if (depth <= 0 || length < lineW * 4) return;
-  const end: Vec = [at[0] + Math.cos(heading) * length, at[1] + Math.sin(heading) * length];
+  const end: Vec = [
+    at[0] + Math.cos(heading) * length,
+    at[1] + Math.sin(heading) * length,
+  ];
   ribbon(ink, [at, end], [width, width * 0.8], [0.8, 0.8], strokePigment.ink);
   const forks: number[] = [];
   if (rng.chance(0.8)) forks.push(heading + snap);
   if (rng.chance(0.8)) forks.push(heading - snap);
   if (rng.chance(0.5)) forks.push(heading);
   for (const h of forks)
-    lsystem(sc, end, h, length * rng.range(0.5, 0.75), depth - 1, width * 0.75, strokePigment);
+    lsystem(
+      sc,
+      end,
+      h,
+      length * rng.range(0.5, 0.75),
+      depth - 1,
+      width * 0.75,
+      strokePigment,
+    );
   if (forks.length === 0 || depth === 1) {
     if (rng.chance(0.35)) {
       sc.pigment = sc.pick();
@@ -984,7 +1139,8 @@ const lsystem = (
 
 /** One vine: a stem from a start point along a heading, with nodes, branches and blooms. */
 const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
-  const { rng, ink, wash, u, lineW, elegance, geometric, main, pick, snap } = sc;
+  const { rng, ink, wash, u, lineW, elegance, geometric, main, pick, snap } =
+    sc;
   const angular = rng.chance(geometric);
   const stem = angular
     ? growAngular(rng, start, heading, stemLength, 160, snap)
@@ -993,7 +1149,15 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
   // A soft pool along the stem in the stem's own pigment, so the vine has some mass.
   if (rng.chance(0.6)) {
     const p = stem[rng.int(10, stem.length - 10)]!;
-    pool(wash, rng, p, u * rng.range(0.08, 0.14), rng.range(0.14, 0.24), main.wash, geometric);
+    pool(
+      wash,
+      rng,
+      p,
+      u * rng.range(0.08, 0.14),
+      rng.range(0.14, 0.24),
+      main.wash,
+      geometric,
+    );
   }
 
   const stemWidths = brushWidths(
@@ -1002,7 +1166,7 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
     lineW * rng.range(2.2, 4) * (1 - 0.35 * elegance),
     0.5,
     0.02,
-    0.35
+    0.35,
   );
   const stemAlpha = stem.map(() => 0.9);
   const above: Array<() => void> = [];
@@ -1034,7 +1198,8 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
     const draw = () => {
       sc.pigment = pigment;
       const e = elegance;
-      if (angular && rng.chance(0.4)) lsystem(sc, p, dir, size * 0.8, rng.int(2, 4), lineW * 1.4);
+      if (angular && rng.chance(0.4))
+        lsystem(sc, p, dir, size * 0.8, rng.int(2, 4), lineW * 1.4);
       else if (roll < 0.2 - 0.08 * e) leaf(sc, p, dir, size);
       else if (roll < 0.38) rose(sc, p, size * 0.7);
       else if (roll < 0.56) bloom(sc, p, size * 0.55);
@@ -1049,9 +1214,23 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
     if (rng.chance(0.35) && branches.length < 2) {
       const branch = angular
         ? growAngular(rng, p, dir, u * rng.range(0.22, 0.45), 60, snap)
-        : growSpine(rng, p, dir, u * rng.range(0.22, 0.45), 60, rng.range(0.8, 2.4));
+        : growSpine(
+            rng,
+            p,
+            dir,
+            u * rng.range(0.22, 0.45),
+            60,
+            rng.range(0.8, 2.4),
+          );
       branches.push(branch);
-      const bw = brushWidths(rng, branch.length, lineW * rng.range(1.3, 2.4), 0.4, 0.02, 0.5);
+      const bw = brushWidths(
+        rng,
+        branch.length,
+        lineW * rng.range(1.3, 2.4),
+        0.4,
+        0.02,
+        0.5,
+      );
       const branchPigment = sc.colorFlow ? pick() : main;
       sc.pigment = branchPigment;
       brushstroke(
@@ -1060,12 +1239,12 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
         bw,
         branch.map(() => 0.85),
         2,
-        0.85
+        0.85,
       );
       const tip = branch[branch.length - 1]!;
       const tipDir = Math.atan2(
         tip[1] - branch[branch.length - 6]![1],
-        tip[0] - branch[branch.length - 6]![0]
+        tip[0] - branch[branch.length - 6]![0],
       );
       sc.pigment = pick();
       if (angular && rng.chance(0.5))
@@ -1078,7 +1257,10 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
   }
 
   const pigments = sc.colorFlow ? sc.stemPigments : [main];
-  const segmentLength = Math.max(1, Math.floor((stem.length - 1) / pigments.length));
+  const segmentLength = Math.max(
+    1,
+    Math.floor((stem.length - 1) / pigments.length),
+  );
   for (let p = 0; p < pigments.length; p++) {
     const start = p === 0 ? 0 : Math.max(0, p * segmentLength - 4);
     const end =
@@ -1092,19 +1274,23 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
       stemWidths.slice(start, end + 1),
       stemAlpha.slice(start, end + 1),
       1.6,
-      0.88
+      0.88,
     );
   }
   for (const { index, pigment } of blushes) {
-    const alpha = stem.map((_, j) => 0.85 * Math.exp(-((j - index) * (j - index)) / 90));
+    const alpha = stem.map(
+      (_, j) => 0.85 * Math.exp(-((j - index) * (j - index)) / 90),
+    );
     ribbon(ink, stem, stemWidths, alpha, pigment.ink);
-    const halo = stem.map((_, j) => Math.exp(-((j - index) * (j - index)) / 160));
+    const halo = stem.map((_, j) =>
+      Math.exp(-((j - index) * (j - index)) / 160),
+    );
     ribbon(
       wash,
       stem,
       stemWidths.map((w) => w * 2.2),
       halo.map((v) => v * 0.5),
-      pigment.wash
+      pigment.wash,
     );
   }
   for (const draw of above) draw();
@@ -1114,7 +1300,10 @@ const vine = (sc: Scene, start: Vec, heading: number, stemLength: number) => {
   for (let i = 0; i < seeds; i++) {
     const ang = heading + rng.range(-1, 1);
     const dist = u * rng.range(0.03, 0.16);
-    const c: Vec = [tip[0] + Math.cos(ang) * dist, tip[1] + Math.sin(ang) * dist];
+    const c: Vec = [
+      tip[0] + Math.cos(ang) * dist,
+      tip[1] + Math.sin(ang) * dist,
+    ];
     ink.globalAlpha = rng.range(0.4, 0.9);
     ink.fillStyle = main.ink;
     ink.beginPath();
@@ -1148,7 +1337,7 @@ const compose = (
   geometric: number,
   stacks: number,
   density: number,
-  colorFlow: boolean
+  colorFlow: boolean,
 ) => {
   const long = Math.max(W, H);
   const landscape = W >= H;
@@ -1199,7 +1388,7 @@ const compose = (
       makeScene(pigments, 1),
       start,
       baseHeading + rng.range(-0.4, 0.4),
-      long * rng.range(0.5, 0.75)
+      long * rng.range(0.5, 0.75),
     );
     return;
   }
@@ -1227,16 +1416,20 @@ const compose = (
       Math.min(W, H) * rng.range(0.08, 0.26),
       rng.range(0.12, 0.3),
       pig.wash,
-      geometric
+      geometric,
     );
   }
 
   const total = Math.round(stacks * (1 + density * 3));
   for (let k = 0; k < total; k++) {
     const palette = rng.pick(PALETTES);
-    const pigs = k === 0 ? pigments : pigmentsFromColours(palette.inks, palette.accents);
+    const pigs =
+      k === 0 ? pigments : pigmentsFromColours(palette.inks, palette.accents);
     const anchor = k < 2 + Math.round(density * 3);
-    const sc = makeScene(pigs, anchor ? rng.range(0.7, 0.95) : rng.range(0.3, 0.6));
+    const sc = makeScene(
+      pigs,
+      anchor ? rng.range(0.7, 0.95) : rng.range(0.3, 0.6),
+    );
     const centre = rng.pick(centres);
     const spread = anchor ? 0.35 : 0.22;
     const start: Vec = anchor
@@ -1248,7 +1441,12 @@ const compose = (
             centre[1] + (rng.next() + rng.next() - 1) * H * spread,
           ];
     const heading = anchor ? rng.range(-0.5, 0.5) : rng.range(0, Math.PI * 2);
-    vine(sc, start, heading, long * (anchor ? rng.range(0.55, 0.8) : rng.range(0.18, 0.4)));
+    vine(
+      sc,
+      start,
+      heading,
+      long * (anchor ? rng.range(0.55, 0.8) : rng.range(0.18, 0.4)),
+    );
   }
 };
 
@@ -1261,7 +1459,8 @@ const BAYER8 = (() => {
     for (let x = 0; x < 8; x++) {
       const q = x ^ y;
       let v = 0;
-      for (let k = 0; k < 3; k++) v = (v << 2) | (((q >> k) & 1) << 1) | ((y >> k) & 1);
+      for (let k = 0; k < 3; k++)
+        v = (v << 2) | (((q >> k) & 1) << 1) | ((y >> k) & 1);
       m[y * 8 + x] = (v + 0.5) / 64;
     }
   }
@@ -1315,7 +1514,7 @@ const composite = (
   W: number,
   H: number,
   dpr: number,
-  ground: PieceOptions['ground']
+  ground: PieceOptions['ground'],
 ) => {
   const inkData = ink.getImageData(0, 0, W, H).data;
   const washData = wash.getImageData(0, 0, W, H).data;
@@ -1348,12 +1547,14 @@ const composite = (
       const inkA = inkData[i + 3]! / 255;
       const gx = Math.min(W - 1, Math.max(0, x + rowShift[y]!));
       const wi = (y * W + gx) * 4;
-      const bayer = BAYER8[(((y / cell) | 0) & 7) * 8 + (((x / cell) | 0) & 7)]! - 0.5;
+      const bayer =
+        BAYER8[(((y / cell) | 0) & 7) * 8 + (((x / cell) | 0) & 7)]! - 0.5;
       const washRaw = (washData[wi + 3]! / 255) * (1 + 0.16 * bayer);
 
       // Paper: coarse granulation plus fine tooth, and pigment settles darker into the grain.
       const grain = valueNoise2(x * grainScale, y * grainScale) - 0.5;
-      const tooth = valueNoise2(x * fineScale + 31.7, y * fineScale + 17.3) - 0.5;
+      const tooth =
+        valueNoise2(x * fineScale + 31.7, y * fineScale + 17.3) - 0.5;
       const paper = 1 + 0.22 * grain + 0.08 * tooth;
 
       // Wet edge: where the wash density changes quickly, pigment gathers into a darker rim.
@@ -1415,14 +1616,23 @@ const makeLayer = (W: number, H: number) => {
 };
 
 /** Build ink/wash pairs from the option colours: accents get a deep and a light version. */
-const pigmentsFromColours = (inks: [string] | [string, string], accents: string[]): Pigment[] => {
+const pigmentsFromColours = (
+  inks: [string] | [string, string],
+  accents: string[],
+): Pigment[] => {
   const deep = hexToRgb(inks[0]);
   const midTone = hexToRgb(inks[1] ?? inks[0]);
   const white: [number, number, number] = [255, 255, 255];
-  const main: Pigment = { ink: rgb(deep), wash: rgb(mixRgb(midTone, white, 0.25)) };
+  const main: Pigment = {
+    ink: rgb(deep),
+    wash: rgb(mixRgb(midTone, white, 0.25)),
+  };
   const rest = accents.map((hex): Pigment => {
     const c = hexToRgb(hex);
-    return { ink: rgb(mixRgb(c, deep, 0.4)), wash: rgb(mixRgb(c, white, 0.08)) };
+    return {
+      ink: rgb(mixRgb(c, deep, 0.4)),
+      wash: rgb(mixRgb(c, white, 0.08)),
+    };
   });
   return [main, ...rest];
 };
@@ -1430,17 +1640,21 @@ const pigmentsFromColours = (inks: [string] | [string, string], accents: string[
 const pigmentsFrom = (options: PieceOptions): Pigment[] =>
   pigmentsFromColours(options.inks, options.accents ?? []);
 
-export const renderPiece = (canvas: HTMLCanvasElement, options: PieceOptions) => {
+export const renderPiece = (
+  canvas: HTMLCanvasElement,
+  options: PieceOptions,
+) => {
   const { seed, width, height, dpr, ground } = options;
+  const scale = Math.max(0.0001, options.scale ?? 1);
   const W = Math.max(1, Math.round(width));
   const H = Math.max(1, Math.round(height));
+  const LW = W / scale;
+  const LH = H / scale;
   canvas.width = W;
   canvas.height = H;
   const target = canvas.getContext('2d');
   if (!target) return;
 
-  // Compose on a generous working canvas so nothing is clipped mid-drawing, then fit the
-  // drawn extent into the output with a margin.
   const stacked = (options.stacks ?? 1) > 1;
   const pad = stacked ? 1.15 : 1.6;
   const WW = Math.round(W * pad);
@@ -1449,26 +1663,28 @@ export const renderPiece = (canvas: HTMLCanvasElement, options: PieceOptions) =>
   let wash = makeLayer(WW, HH);
   ink.translate((WW - W) / 2, (HH - H) / 2);
   wash.translate((WW - W) / 2, (HH - H) / 2);
+  ink.scale(scale, scale);
+  wash.scale(scale, scale);
   compose(
     makeRng(seed),
     ink,
     wash,
-    W,
-    H,
-    dpr,
+    LW,
+    LH,
+    dpr / scale,
     pigmentsFrom(options),
     options.accentChance ?? 0.3,
     options.elegance ?? 0.5,
     options.geometric ?? 0.15,
     options.stacks ?? 1,
     options.density ?? 0,
-    options.colorFlow ?? false
+    options.colorFlow ?? false,
   );
 
   const box = measure(
     [ink.getImageData(0, 0, WW, HH).data, wash.getImageData(0, 0, WW, HH).data],
     WW,
-    HH
+    HH,
   );
   const fittedInk = makeLayer(W, H);
   const fittedWash = makeLayer(W, H);
@@ -1476,7 +1692,11 @@ export const renderPiece = (canvas: HTMLCanvasElement, options: PieceOptions) =>
     const margin = stacked ? 0.02 : 0.06;
     const bw = box.maxX - box.minX + 2;
     const bh = box.maxY - box.minY + 2;
-    const scale = Math.min(1.3, (W * (1 - 2 * margin)) / bw, (H * (1 - 2 * margin)) / bh);
+    const scale = Math.min(
+      1.3,
+      (W * (1 - 2 * margin)) / bw,
+      (H * (1 - 2 * margin)) / bh,
+    );
     const dx = (W - bw * scale) / 2;
     const dy = (H - bh * scale) / 2;
     for (const [from, to] of [
@@ -1485,7 +1705,17 @@ export const renderPiece = (canvas: HTMLCanvasElement, options: PieceOptions) =>
     ] as const) {
       to.imageSmoothingEnabled = true;
       to.imageSmoothingQuality = 'high';
-      to.drawImage(from.canvas, box.minX - 1, box.minY - 1, bw, bh, dx, dy, bw * scale, bh * scale);
+      to.drawImage(
+        from.canvas,
+        box.minX - 1,
+        box.minY - 1,
+        bw,
+        bh,
+        dx,
+        dy,
+        bw * scale,
+        bh * scale,
+      );
     }
   }
   ink = fittedInk;

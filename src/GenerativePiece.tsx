@@ -54,6 +54,7 @@ export const GenerativePiece = ({
       width: width * dpr,
       height: height * dpr,
       dpr,
+      scale: dpr,
       inks,
       accents,
       accentChance,

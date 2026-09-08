@@ -6,15 +6,15 @@ import {
   Download,
   Palette as PaletteIcon,
   Settings,
-  Type,
 } from 'iconoir-react';
 import {
   type CSSProperties,
   Fragment,
   lazy,
   Suspense,
-  useCallback,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -46,25 +46,14 @@ const FIELD_PIECE_PALETTES = PALETTES.map((palette) => ({
 }));
 
 /**
- * Two candidates for the display face, still undecided. The F key swaps between them at
- * runtime; once one is picked, set DEFAULT_DISPLAY_FONT to it and delete the list.
+ * The display face. Self-hosted rather than linked, and quoted with the fontsource family name,
+ * so every machine measures the same glyphs and the lines break in the same places.
  */
-const DISPLAY_FONTS = [
-  {
-    name: 'Outfit',
-    stack: "'Outfit Variable', Outfit, 'Geist Variable', sans-serif",
-    size: 'clamp(27px, 4.4vw, 32px)',
-    tracking: '-0.032em',
-  },
-  {
-    // Readex Pro is the wider face, so it is set smaller and tighter to wrap like Outfit.
-    name: 'Readex Pro',
-    stack: "'Readex Pro Variable', 'Readex Pro', 'Geist Variable', sans-serif",
-    size: 'clamp(25px, 4.1vw, 30px)',
-    tracking: '-0.042em',
-  },
-];
-const DEFAULT_DISPLAY_FONT = 0;
+const DISPLAY_FONT = {
+  stack: "'Teachers Variable', Teachers, 'Geist Variable', sans-serif",
+  size: 'clamp(26px, 4.2vw, 31px)',
+  tracking: '-0.03em',
+};
 
 type Post = {
   id: string;
@@ -72,15 +61,10 @@ type Post = {
   role: string;
   period: string;
   Icon: IconComponent;
-  /** Index into the palette's colours, and how far the ink is mixed toward it. */
-  accent: number;
-  tint: number;
 };
 
 const CURRENT: Post = {
   id: 'cwru',
-  accent: 5,
-  tint: 0.24,
   place: 'Case Western Reserve',
   role: 'Medical School',
   period: '2025 —',
@@ -90,8 +74,6 @@ const CURRENT: Post = {
 const PREVIOUS: Post[] = [
   {
     id: 'msk',
-    accent: 4,
-    tint: 0.3,
     place: 'Memorial Sloan Kettering',
     role: 'Bioinformatics Software Engineer',
     period: '2022 — 2025',
@@ -99,8 +81,6 @@ const PREVIOUS: Post[] = [
   },
   {
     id: 'bloomberg',
-    accent: 3,
-    tint: 0.28,
     place: 'Bloomberg',
     role: 'Software Engineer',
     period: '2018 — 2022',
@@ -108,14 +88,30 @@ const PREVIOUS: Post[] = [
   },
   {
     id: 'stanford',
-    accent: 2,
-    tint: 0.22,
     place: 'Stanford',
     role: 'MS in Artificial Intelligence',
     period: '2018',
     Icon: GraduationCap,
   },
 ];
+
+/** Widest the masthead ever gets, and how the space inside it is divided. */
+const MEASURE = 1024;
+const COLUMN_GAP = 56;
+const PIECE_WIDTH = 420;
+const INTRO_WIDTH = MEASURE - PIECE_WIDTH - COLUMN_GAP;
+/** Side by side only once the full measure fits inside the stage's 24px gutters. */
+const ROW_LAYOUT = `@media (min-width: ${MEASURE + 48}px)`;
+
+/**
+ * The names and their icons are two flat colours, painted as given: no ramp off the drawing, no
+ * wash, and no opacity over them, so each one renders as exactly this value.
+ */
+const NAME_COLOR = '#4d467c';
+const ICON_COLOR = '#5e5e9d';
+
+const mixToward = (base: string, toward: string, amount: number) =>
+  `color-mix(in oklab, ${base} ${Math.round((1 - amount) * 100)}%, ${toward})`;
 
 const popIn = stylex.keyframes({
   from: {
@@ -167,44 +163,65 @@ const styles = stylex.create({
     paddingLeft: 'max(24px, env(safe-area-inset-left))',
     transition: 'color 600ms ease',
   },
+  /**
+   * Every length here is in px, never rem: the type is set in px, so a browser whose default
+   * font size is not 16 would otherwise resize the column out from under text that stayed put,
+   * and the lines would break somewhere else. The side-by-side layout only starts once the
+   * whole 1024px measure fits, so above it the column is exactly INTRO_WIDTH on every machine
+   * and the bio wraps in the same three places everywhere.
+   */
   masthead: {
     display: 'flex',
     flexDirection: {
       default: 'column',
-      '@media (min-width: 861px)': 'row-reverse',
+      [ROW_LAYOUT]: 'row-reverse',
     },
     alignItems: 'center',
     justifyContent: {
       default: 'space-evenly',
-      '@media (min-width: 861px)': 'center',
+      [ROW_LAYOUT]: 'center',
     },
     height: {
       default: '100%',
-      '@media (min-width: 861px)': 'auto',
+      [ROW_LAYOUT]: 'auto',
     },
     gap: {
-      default: '1.5rem',
-      '@media (min-width: 861px)': 'clamp(2rem, 4vw, 3.5rem)',
+      default: '24px',
+      [ROW_LAYOUT]: `${COLUMN_GAP}px`,
     },
     width: '100%',
-    maxWidth: '64rem',
+    maxWidth: {
+      /** Stacked, the drawing and the text read as one column rather than two loose halves. */
+      default: '560px',
+      [ROW_LAYOUT]: `${MEASURE}px`,
+    },
   },
   intro: {
     marginBottom: {
       default: 0,
-      '@media (min-width: 861px)': 8,
+      [ROW_LAYOUT]: 10,
     },
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',
     gap: {
-      default: '1.9rem',
-      '@media (min-width: 861px)': '1.35rem',
+      default: '30px',
+      [ROW_LAYOUT]: '22px',
     },
     textAlign: 'left',
-    width: '100%',
+    width: {
+      default: '100%',
+      [ROW_LAYOUT]: `${INTRO_WIDTH}px`,
+    },
     minWidth: 0,
-    maxWidth: 'min(36rem, 100%)',
+    maxWidth: {
+      default: '560px',
+      [ROW_LAYOUT]: 'none',
+    },
+    flexShrink: {
+      default: 1,
+      [ROW_LAYOUT]: 0,
+    },
   },
   title: {
     margin: 0,
@@ -213,10 +230,8 @@ const styles = stylex.create({
   },
   bio: {
     margin: 0,
-    fontWeight: 400,
-    lineHeight: 1.37,
-    opacity: 0.88,
-    textWrap: 'pretty',
+    fontWeight: 450,
+    lineHeight: 1.39,
   },
   post: {
     whiteSpace: 'nowrap',
@@ -464,28 +479,10 @@ const HOME_SCENE: GradientScene = {
 
 const PIECE_EXPORT_SCALE = 3;
 
-const PIECE_WIDTH = 420;
 const PIECE_ASPECT = 300 / 420;
 
 const measurePieceWidth = () =>
   Math.round(Math.min(PIECE_WIDTH, window.innerWidth - 48));
-
-const useDisplayFont = () => {
-  const [index, setIndex] = useState(DEFAULT_DISPLAY_FONT);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'f' || event.key === 'F') {
-        setIndex((i) => (i + 1) % DISPLAY_FONTS.length);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
-
-  const next = () => setIndex((i) => (i + 1) % DISPLAY_FONTS.length);
-  return [DISPLAY_FONTS[index]!, next] as const;
-};
 
 const REVEAL_TIMEOUT = 1200;
 
@@ -573,19 +570,17 @@ const PostMark = ({
   const { Icon } = post;
   const [tilt, setTilt] = useState(-1.2);
   const [shift, setShift] = useState(0);
-  const accent = palette.colors[post.accent] ?? palette.ink;
-  const mix = (amount: number) =>
-    `color-mix(in oklab, ${palette.ink} ${Math.round((1 - amount) * 100)}%, ${accent})`;
-  const tinted = mix(post.tint);
+  const cardRef = useRef<HTMLSpanElement>(null);
   const open = () => {
+    if (isOpen) return;
     setTilt(randomTilt());
-    setShift(0);
     onOpenChange(post.id);
   };
 
-  const keepCardOnScreen = useCallback((node: HTMLSpanElement | null) => {
+  useLayoutEffect(() => {
+    const node = cardRef.current;
     const button = node?.offsetParent;
-    if (!node || !(button instanceof HTMLElement)) return;
+    if (!isOpen || !node || !(button instanceof HTMLElement)) return;
     const anchor = button.getBoundingClientRect();
     const width = node.offsetWidth;
     const left = anchor.left + anchor.width / 2 - width / 2;
@@ -593,7 +588,8 @@ const PostMark = ({
     const pastRight = left + width - (window.innerWidth - CARD_MARGIN);
     if (pastLeft > 0) setShift(pastLeft);
     else if (pastRight > 0) setShift(-pastRight);
-  }, []);
+    else setShift(0);
+  }, [isOpen]);
 
   const cardStyle = {
     color: palette.ink,
@@ -601,10 +597,9 @@ const PostMark = ({
     '--card-tilt': `${tilt.toFixed(2)}deg`,
     '--card-tilt-from': `${(tilt + CARD_SWING).toFixed(2)}deg`,
   } as CSSProperties;
-  const iconTinted = mix(Math.min(post.tint * 2.1, 0.62));
 
   return (
-    <span {...stylex.props(styles.post)} style={{ color: tinted }}>
+    <span {...stylex.props(styles.post)} style={{ color: NAME_COLOR }}>
       <button
         type="button"
         aria-label={`${post.role}, ${post.place}, ${post.period}`}
@@ -617,11 +612,11 @@ const PostMark = ({
         <Icon
           aria-hidden="true"
           {...stylex.props(styles.icon)}
-          style={{ color: iconTinted }}
+          style={{ color: ICON_COLOR }}
         />
         {isOpen && (
           <span
-            ref={keepCardOnScreen}
+            ref={cardRef}
             aria-hidden="true"
             {...stylex.props(styles.popup)}
             style={cardStyle}
@@ -640,11 +635,10 @@ const PostMark = ({
 const App = () => {
   const [paletteIndex, nextPalette] = usePaletteIndex();
   const palette = PALETTES[paletteIndex]!;
-  const [displayFont, nextDisplayFont] = useDisplayFont();
   const displayType = {
-    fontFamily: displayFont.stack,
-    fontSize: displayFont.size,
-    letterSpacing: displayFont.tracking,
+    fontFamily: DISPLAY_FONT.stack,
+    fontSize: DISPLAY_FONT.size,
+    letterSpacing: DISPLAY_FONT.tracking,
   };
   const [pieceSeed, setPieceSeed] = useState(randomSeed);
   const [isPieceHovered, setIsPieceHovered] = useState(false);
@@ -654,7 +648,7 @@ const App = () => {
   const [isCornerHovered, setIsCornerHovered] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const pieceSize = usePieceSize();
-  const isRevealed = useIsRevealed(displayFont.stack);
+  const isRevealed = useIsRevealed(DISPLAY_FONT.stack);
 
   const piecePalette =
     FIELD_PIECE_PALETTES[pieceSeed % FIELD_PIECE_PALETTES.length]!;
@@ -662,6 +656,11 @@ const App = () => {
   const pieceAccents = useFieldPalette
     ? piecePalette.accents
     : HOME_DEFAULT_ACCENTS;
+  /**
+   * The paragraph used to be faded as a whole with opacity, which the names can no longer sit
+   * under. The labels carry that fade in their own colour instead, so they keep their weight.
+   */
+  const labelColor = mixToward(palette.ink, palette.paper, 0.12);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -680,6 +679,7 @@ const App = () => {
       width: pieceSize.width * PIECE_EXPORT_SCALE,
       height: pieceSize.height * PIECE_EXPORT_SCALE,
       dpr: PIECE_EXPORT_SCALE,
+      scale: PIECE_EXPORT_SCALE,
       inks: pieceInks,
       accents: pieceAccents,
       accentChance: useFieldPalette ? 0.72 : 0.3,
@@ -739,7 +739,7 @@ const App = () => {
                 isRevealed ? styles.enter : styles.hidden,
                 styles.delayBody,
               )}
-              style={displayType}
+              style={{ ...displayType, color: labelColor }}
             >
               Currently{' '}
               <PostMark
@@ -900,18 +900,6 @@ const App = () => {
             aria-hidden="true"
             {...stylex.props(styles.cornerIcon)}
           />
-        </button>
-        <button
-          type="button"
-          aria-label={`Next display typeface, currently ${displayFont.name}`}
-          title="Next typeface"
-          {...stylex.props(
-            styles.control,
-            isRevealed && isCornerHovered && styles.controlVisible,
-          )}
-          onClick={nextDisplayFont}
-        >
-          <Type aria-hidden="true" {...stylex.props(styles.cornerIcon)} />
         </button>
         <a
           href="/sketch"
