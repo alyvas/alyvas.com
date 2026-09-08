@@ -1,9 +1,4 @@
 :root {
-  /* Android WebView's algorithmic darkening -- and Chrome's auto-dark -- repaint any page that
-     does not claim to handle dark mode itself. Declaring only `light` is NOT an opt-out; both
-     engines darken it anyway. Claiming `light dark` and then re-asserting the light palette
-     below is what actually leaves the design alone, in an in-app browser as much as anywhere. */
-  color-scheme: light dark;
   font-family: 'Teachers Variable', Teachers, 'Geist Variable', sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -24,24 +19,11 @@ body,
 html,
 body {
   background: #f3ecf3;
-  color: #2b2233;
-  /* The page is exactly one viewport tall, so a rubber-band scroll has nothing to reveal but
-     the ground behind it. Blocking the bounce keeps that ground from ever being exposed. */
   overscroll-behavior: none;
 }
 
 body {
   min-height: 100svh;
-}
-
-/* The palette does not change in dark mode; this block exists so the page reads as one that
-   has a dark theme of its own, which is what keeps the darkening engines off it. */
-@media (prefers-color-scheme: dark) {
-  html,
-  body {
-    background: #f3ecf3;
-    color: #2b2233;
-  }
 }
 
 ::selection {

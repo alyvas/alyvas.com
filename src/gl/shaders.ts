@@ -38,7 +38,7 @@ vec2 rotate(vec2 uv, float th) {
  * and laid over the paper colour. Rendered at low resolution, so it must stay smooth.
  */
 export const GRADIENT_FRAGMENT_SHADER = `#version 300 es
-precision mediump float;
+precision highp float;
 
 uniform vec2 u_resolution;
 uniform float u_time;
